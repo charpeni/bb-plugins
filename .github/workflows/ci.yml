@@ -38,6 +38,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # This job runs plain npm on purpose; stop setup-node from probing
+          # for pnpm because of the root packageManager field.
+          package-manager-cache: false
       - run: |
           set -euo pipefail
           for plugin in plugins/*/; do
