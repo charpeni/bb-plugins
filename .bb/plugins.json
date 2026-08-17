@@ -2,5 +2,8 @@
   "$schema": "https://getbb.app/schemas/plugins.schema.json",
   "schemaVersion": 1,
   "name": "charpeni-plugins",
-  "plugins": [{ "name": "system-monitor", "source": "./plugins/system-monitor" }]
+  "plugins": [
+    { "name": "dependabot", "source": "./plugins/dependabot" },
+    { "name": "system-monitor", "source": "./plugins/system-monitor" }
+  ]
 }

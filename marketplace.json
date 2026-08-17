@@ -6,6 +6,22 @@
   "description": "BB plugins Nicolas Charpentier maintains.",
   "plugins": [
     {
+      "id": "dependabot",
+      "displayName": "Dependabot",
+      "description": "Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents.",
+      "icon": { "url": "./icons/dependabot.svg" },
+      "tags": ["github", "security", "interface"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/dependabot",
+          "range": "^0.1.0",
+          "tagPrefix": "dependabot/"
+        }
+      }
+    },
+    {
       "id": "system-monitor",
       "displayName": "System Monitor",
       "description": "Live CPU, memory, disk, load, and uptime statistics for the bb server host.",
