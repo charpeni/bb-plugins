@@ -5,15 +5,24 @@ custom marketplace.
 
 ## Use the marketplace
 
+Go to **Settings → Plugins marketplace** and add:
+
+```
+git:https://github.com/charpeni/bb-plugins@main
+```
+
+All charpeni's plugins are then available directly from
+**Extensions → Browse plugins**.
+
+<details>
+<summary>Or from the CLI</summary>
+
 ```sh
 bb marketplace add git:github.com/charpeni/bb-plugins@main
-```
-
-Then install plugins from it:
-
-```sh
 bb plugin install system-monitor@charpeni
 ```
+
+</details>
 
 ## Plugins
 
