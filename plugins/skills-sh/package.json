@@ -24,6 +24,7 @@
     "server.ts",
     "skills-core.ts",
     "git-source.ts",
+    "app.tsx",
     "assets",
     "README.md"
   ],
@@ -34,12 +35,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.4.6",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.18",
     "bb-app": "^0.38.0",
     "better-sqlite3": "^13.0.3",
     "typescript": "^7.0.2",
@@ -55,6 +58,7 @@
     "branding": {
       "icon": "./assets/skills-sh.svg"
     },
-    "server": "./server.ts"
+    "server": "./server.ts",
+    "app": "./app.tsx"
   }
 }

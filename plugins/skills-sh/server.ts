@@ -1,6 +1,7 @@
 import { rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import {
   cleanAndCreateDirectory,
   computeSkillFolderHash,
@@ -59,10 +60,114 @@ interface CheckResult {
   detail?: string;
 }
 
+interface UpdateReport {
+  results: CheckResult[];
+  updated: SkillLockEntry[];
+  failed: Array<{ entry: SkillLockEntry; error: string }>;
+}
+
 interface CliResult {
   exitCode: number;
   stdout?: string;
   stderr?: string;
+}
+
+const lockEntrySchema = z
+  .object({
+    name: z.string(),
+    installName: z.string(),
+    source: z.string(),
+    sourceType: z.enum(["github", "gitlab", "git", "local"]),
+    sourceUrl: z.string(),
+    ref: z.string().optional(),
+    skillPath: z.string().optional(),
+    skillFolderHash: z.string().nullable(),
+    hashKind: z.enum(["git-tree", "content"]),
+    installedAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict();
+
+const checkResultSchema = z
+  .object({
+    installName: z.string(),
+    name: z.string(),
+    source: z.string(),
+    status: z.enum(["up-to-date", "update-available", "deleted-upstream", "skipped", "error"]),
+    detail: z.string().optional(),
+  })
+  .strict();
+
+export const skillsRpcContract = defineRpcContract({
+  status: {
+    input: z.null(),
+    output: z.object({ skillsRoot: z.string(), skills: z.array(lockEntrySchema) }).strict(),
+  },
+  search: {
+    input: z.object({ query: z.string() }).strict(),
+    output: z
+      .object({
+        skills: z.array(
+          z
+            .object({
+              id: z.string(),
+              source: z.string(),
+              skillId: z.string(),
+              name: z.string(),
+              installs: z.number(),
+              summary: z.string().nullable(),
+              url: z.string(),
+            })
+            .strict(),
+        ),
+        total: z.number(),
+      })
+      .strict(),
+  },
+  previewSource: {
+    input: z.object({ source: z.string().min(1) }).strict(),
+    output: z
+      .object({
+        skills: z.array(
+          z.object({ name: z.string(), description: z.string(), installed: z.boolean() }).strict(),
+        ),
+      })
+      .strict(),
+  },
+  install: {
+    input: z
+      .object({ source: z.string().min(1), skills: z.array(z.string().min(1)).optional() })
+      .strict(),
+    output: z.object({ installed: z.array(lockEntrySchema) }).strict(),
+  },
+  check: {
+    input: z.object({ skills: z.array(z.string().min(1)).optional() }).strict(),
+    output: z.object({ results: z.array(checkResultSchema) }).strict(),
+  },
+  update: {
+    input: z.object({ skills: z.array(z.string().min(1)).optional() }).strict(),
+    output: z
+      .object({
+        results: z.array(checkResultSchema),
+        updated: z.array(lockEntrySchema),
+        failed: z.array(z.object({ installName: z.string(), error: z.string() }).strict()),
+      })
+      .strict(),
+  },
+  remove: {
+    input: z.object({ skills: z.array(z.string().min(1)).min(1) }).strict(),
+    output: z.object({ removed: z.array(z.string()), missing: z.array(z.string()) }).strict(),
+  },
+});
+
+function serializeCheck(result: CheckResult): z.infer<typeof checkResultSchema> {
+  return {
+    installName: result.entry.installName,
+    name: result.entry.name,
+    source: result.entry.source,
+    status: result.status,
+    ...(result.detail ? { detail: result.detail } : {}),
+  };
 }
 
 export default function plugin(bb: BbPluginApi) {
@@ -132,7 +237,19 @@ export default function plugin(bb: BbPluginApi) {
       updatedAt: now,
     };
     await writeLockEntry(entry);
+    bb.log.info(`installed skill ${entry.installName} from ${entry.source}`);
     return entry;
+  }
+
+  function parseSourceInput(sourceInput: string): ParsedSource {
+    const parsed = parseSource(sourceInput);
+    if (parsed.type === "local" && !sourceInput.startsWith("/")) {
+      throw new Error(
+        "Relative local paths are not supported: bb runs this command on the server, " +
+          "so pass an absolute path on the bb server host.",
+      );
+    }
+    return parsed;
   }
 
   /** Resolve a source's skills: clone (or use a local path) and discover. */
@@ -164,116 +281,44 @@ export default function plugin(bb: BbPluginApi) {
     }
   }
 
-  async function runAdd(argv: string[]): Promise<CliResult> {
-    const skillNames: string[] = [];
-    let listOnly = false;
-    let fullDepth = false;
-    let sourceInput: string | undefined;
-
-    for (let i = 0; i < argv.length; i++) {
-      const arg = argv[i]!;
-      if (arg === "-s" || arg === "--skill") {
-        const value = argv[++i];
-        if (!value) return { exitCode: 1, stderr: `Missing value for ${arg}` };
-        skillNames.push(
-          ...value
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean),
-        );
-      } else if (arg === "-l" || arg === "--list") {
-        listOnly = true;
-      } else if (arg === "--full-depth") {
-        fullDepth = true;
-      } else if (arg === "-y" || arg === "--yes" || arg === "-g" || arg === "--global") {
-        // Always non-interactive, always the bb user scope; accepted for parity.
-      } else if (!arg.startsWith("-") && !sourceInput) {
-        sourceInput = arg;
-      } else {
-        return { exitCode: 1, stderr: `Unknown argument: ${arg}` };
-      }
-    }
-
-    if (!sourceInput) {
-      return { exitCode: 1, stderr: "Usage: bb skills add <source> [--skill <name>] [--list]" };
-    }
-
-    let parsed: ParsedSource;
-    try {
-      parsed = parseSource(sourceInput);
-    } catch (error) {
-      return { exitCode: 1, stderr: error instanceof Error ? error.message : String(error) };
-    }
-    if (parsed.type === "local" && !sourceInput.startsWith("/")) {
-      return {
-        exitCode: 1,
-        stderr:
-          "Relative local paths are not supported: bb runs this command on the server, " +
-          "so pass an absolute path on the bb server host.",
-      };
-    }
+  /**
+   * Install skills from a source string. Empty `skillNames` installs every
+   * discovered skill (the CLI's non-interactive `-y` behavior).
+   */
+  async function installFromSource(
+    sourceInput: string,
+    skillNames: string[],
+    options: { fullDepth?: boolean } = {},
+  ): Promise<SkillLockEntry[]> {
+    const parsed = parseSourceInput(sourceInput);
     if (parsed.skillFilter && skillNames.length === 0) {
-      skillNames.push(parsed.skillFilter);
+      skillNames = [parsed.skillFilter];
     }
-    const wantsAll = skillNames.length === 1 && skillNames[0] === "*";
-    const explicitNames = wantsAll ? [] : skillNames;
+    const explicitNames = skillNames.length === 1 && skillNames[0] === "*" ? [] : skillNames;
 
     const { basePath, skills, cleanup } = await loadSource(parsed, {
       includeInternal: explicitNames.length > 0,
-      fullDepth,
+      fullDepth: options.fullDepth,
     });
-
     try {
       if (skills.length === 0) {
-        return { exitCode: 1, stderr: `No skills found in ${sourceInput}` };
+        throw new Error(`No skills found in ${sourceInput}`);
       }
-
-      if (listOnly) {
-        const lines = skills.map((s) => `  ${getSkillDisplayName(s)} — ${s.description}`);
-        return {
-          exitCode: 0,
-          stdout: `${skills.length} skill(s) available in ${sourceInput}:\n${lines.join("\n")}`,
-        };
-      }
-
       const selected = explicitNames.length > 0 ? filterSkills(skills, explicitNames) : skills;
       if (selected.length === 0) {
-        const available = skills.map((s) => `  - ${getSkillDisplayName(s)}`).join("\n");
-        return {
-          exitCode: 1,
-          stderr: `No matching skills found for: ${explicitNames.join(", ")}\nAvailable skills:\n${available}`,
-        };
+        const available = skills.map((s) => getSkillDisplayName(s)).join(", ");
+        throw new Error(
+          `No matching skills found for: ${explicitNames.join(", ")}. Available: ${available}`,
+        );
       }
-
-      const lines: string[] = [];
+      const installed: SkillLockEntry[] = [];
       for (const skill of selected) {
-        const entry = await installSkill(skill, basePath, parsed, sourceInput);
-        lines.push(`✓ Installed ${entry.installName} (${entry.source})`);
-        bb.log.info(`installed skill ${entry.installName} from ${entry.source}`);
+        installed.push(await installSkill(skill, basePath, parsed, sourceInput));
       }
-      const root = await resolveSkillsRoot();
-      lines.push(`${selected.length} skill(s) installed to ${root}`);
-      return { exitCode: 0, stdout: lines.join("\n") };
+      return installed;
     } finally {
       await cleanup().catch(() => {});
     }
-  }
-
-  async function runList(): Promise<CliResult> {
-    const entries = await readLock();
-    if (entries.length === 0) {
-      return { exitCode: 0, stdout: "No skills installed. Install with: bb skills add <source>" };
-    }
-    const root = await resolveSkillsRoot();
-    const lines = entries.map((entry) => {
-      const ref = entry.ref ? `#${entry.ref}` : "";
-      const hash = entry.skillFolderHash ? entry.skillFolderHash.slice(0, 12) : "untracked";
-      return `  ${entry.installName}  ${entry.source}${ref}  ${hash}  (updated ${entry.updatedAt.slice(0, 10)})`;
-    });
-    return {
-      exitCode: 0,
-      stdout: `${entries.length} skill(s) installed in ${root}:\n${lines.join("\n")}`,
-    };
   }
 
   /** Compare each lock entry against its source; never mutates anything. */
@@ -350,12 +395,227 @@ export default function plugin(bb: BbPluginApi) {
     return results;
   }
 
+  /** Check the given entries and re-install the ones whose source differs. */
+  async function applyUpdates(names: string[]): Promise<UpdateReport> {
+    const entries = selectEntries(await readLock(), names);
+    const results = await checkEntries(entries);
+    const toUpdate = results.filter((r) => r.status === "update-available");
+
+    const updated: SkillLockEntry[] = [];
+    const failed: Array<{ entry: SkillLockEntry; error: string }> = [];
+    const bySource = new Map<string, SkillLockEntry[]>();
+    for (const { entry } of toUpdate) {
+      const key = `${entry.sourceUrl}#${entry.ref ?? ""}`;
+      bySource.set(key, [...(bySource.get(key) ?? []), entry]);
+    }
+
+    for (const group of bySource.values()) {
+      const first = group[0]!;
+      let tempDir: string | null = null;
+      try {
+        tempDir = await cloneRepo(first.sourceUrl, first.ref);
+        // Skills can move within the repo; rediscover instead of trusting the
+        // recorded folder blindly (the CLI re-runs `add --skill <name>`).
+        const skills = await discoverSkills(tempDir, undefined, {
+          fullDepth: true,
+          includeInternal: true,
+        });
+        for (const entry of group) {
+          const parsed: ParsedSource = {
+            type: entry.sourceType,
+            url: entry.sourceUrl,
+            ...(entry.ref ? { ref: entry.ref } : {}),
+          };
+          const match =
+            filterSkills(skills, [entry.name])[0] ?? filterSkills(skills, [entry.installName])[0];
+          if (!match) {
+            failed.push({ entry, error: `no longer found in ${entry.source}` });
+            continue;
+          }
+          updated.push(await installSkill(match, tempDir, parsed, entry.source));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        for (const entry of group) {
+          failed.push({ entry, error: message });
+        }
+      } finally {
+        if (tempDir) await cleanupTempDir(tempDir).catch(() => {});
+      }
+    }
+
+    return { results, updated, failed };
+  }
+
+  async function removeSkills(names: string[]): Promise<{ removed: string[]; missing: string[] }> {
+    const skillsRoot = await resolveSkillsRoot();
+    const removed: string[] = [];
+    const missing: string[] = [];
+    for (const name of names) {
+      const entries = selectEntries(await readLock(), [name]);
+      if (entries.length === 0) {
+        missing.push(name);
+        continue;
+      }
+      for (const entry of entries) {
+        const dir = join(skillsRoot, entry.installName);
+        if (isPathSafe(skillsRoot, dir) && dir !== skillsRoot) {
+          await rm(dir, { recursive: true, force: true });
+        }
+        await bb.storage.kv.delete(`${LOCK_PREFIX}${entry.installName}`);
+        removed.push(entry.installName);
+      }
+    }
+    return { removed, missing };
+  }
+
   function selectEntries(entries: SkillLockEntry[], names: string[]): SkillLockEntry[] {
     if (names.length === 0) return entries;
     const wanted = new Set(names.map((n) => n.toLowerCase()));
     return entries.filter(
       (e) => wanted.has(e.installName.toLowerCase()) || wanted.has(e.name.toLowerCase()),
     );
+  }
+
+  async function searchRegistry(query: string) {
+    const page = await bb.sdk.skills.registry.search(
+      query ? { query, perPage: 12 } : { perPage: 12 },
+    );
+    return {
+      skills: page.skills.map((skill) => ({
+        id: skill.id,
+        source: skill.source,
+        skillId: skill.skillId,
+        name: skill.name,
+        installs: skill.installs,
+        summary: skill.summary,
+        url: skill.url,
+      })),
+      total: page.pagination.total,
+    };
+  }
+
+  bb.rpc.register(skillsRpcContract, {
+    async status() {
+      return { skillsRoot: await resolveSkillsRoot(), skills: await readLock() };
+    },
+    async search({ query }) {
+      return await searchRegistry(query.trim());
+    },
+    async previewSource({ source }) {
+      const parsed = parseSourceInput(source);
+      const installedNames = new Set((await readLock()).map((e) => e.installName));
+      const { skills, cleanup } = await loadSource(parsed, {});
+      try {
+        return {
+          skills: skills.map((skill) => ({
+            name: getSkillDisplayName(skill),
+            description: skill.description,
+            installed: installedNames.has(sanitizeName(getSkillDisplayName(skill))),
+          })),
+        };
+      } finally {
+        await cleanup().catch(() => {});
+      }
+    },
+    async install({ source, skills }) {
+      return { installed: await installFromSource(source, skills ?? []) };
+    },
+    async check({ skills }) {
+      const entries = selectEntries(await readLock(), skills ?? []);
+      return { results: (await checkEntries(entries)).map(serializeCheck) };
+    },
+    async update({ skills }) {
+      const report = await applyUpdates(skills ?? []);
+      return {
+        results: report.results.map(serializeCheck),
+        updated: report.updated,
+        failed: report.failed.map(({ entry, error }) => ({
+          installName: entry.installName,
+          error,
+        })),
+      };
+    },
+    async remove({ skills }) {
+      return await removeSkills(skills);
+    },
+  });
+
+  // ─── CLI ───
+
+  async function runAdd(argv: string[]): Promise<CliResult> {
+    const skillNames: string[] = [];
+    let listOnly = false;
+    let fullDepth = false;
+    let sourceInput: string | undefined;
+
+    for (let i = 0; i < argv.length; i++) {
+      const arg = argv[i]!;
+      if (arg === "-s" || arg === "--skill") {
+        const value = argv[++i];
+        if (!value) return { exitCode: 1, stderr: `Missing value for ${arg}` };
+        skillNames.push(
+          ...value
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        );
+      } else if (arg === "-l" || arg === "--list") {
+        listOnly = true;
+      } else if (arg === "--full-depth") {
+        fullDepth = true;
+      } else if (arg === "-y" || arg === "--yes" || arg === "-g" || arg === "--global") {
+        // Always non-interactive, always the bb user scope; accepted for parity.
+      } else if (!arg.startsWith("-") && !sourceInput) {
+        sourceInput = arg;
+      } else {
+        return { exitCode: 1, stderr: `Unknown argument: ${arg}` };
+      }
+    }
+
+    if (!sourceInput) {
+      return { exitCode: 1, stderr: "Usage: bb skills add <source> [--skill <name>] [--list]" };
+    }
+
+    if (listOnly) {
+      const parsed = parseSourceInput(sourceInput);
+      const { skills, cleanup } = await loadSource(parsed, { fullDepth });
+      try {
+        if (skills.length === 0) {
+          return { exitCode: 1, stderr: `No skills found in ${sourceInput}` };
+        }
+        const lines = skills.map((s) => `  ${getSkillDisplayName(s)} — ${s.description}`);
+        return {
+          exitCode: 0,
+          stdout: `${skills.length} skill(s) available in ${sourceInput}:\n${lines.join("\n")}`,
+        };
+      } finally {
+        await cleanup().catch(() => {});
+      }
+    }
+
+    const installed = await installFromSource(sourceInput, skillNames, { fullDepth });
+    const lines = installed.map((entry) => `✓ Installed ${entry.installName} (${entry.source})`);
+    const root = await resolveSkillsRoot();
+    lines.push(`${installed.length} skill(s) installed to ${root}`);
+    return { exitCode: 0, stdout: lines.join("\n") };
+  }
+
+  async function runList(): Promise<CliResult> {
+    const entries = await readLock();
+    if (entries.length === 0) {
+      return { exitCode: 0, stdout: "No skills installed. Install with: bb skills add <source>" };
+    }
+    const root = await resolveSkillsRoot();
+    const lines = entries.map((entry) => {
+      const ref = entry.ref ? `#${entry.ref}` : "";
+      const hash = entry.skillFolderHash ? entry.skillFolderHash.slice(0, 12) : "untracked";
+      return `  ${entry.installName}  ${entry.source}${ref}  ${hash}  (updated ${entry.updatedAt.slice(0, 10)})`;
+    });
+    return {
+      exitCode: 0,
+      stdout: `${entries.length} skill(s) installed in ${root}:\n${lines.join("\n")}`,
+    };
   }
 
   function formatCheckLine(result: CheckResult): string {
@@ -397,64 +657,22 @@ export default function plugin(bb: BbPluginApi) {
       return { exitCode: 0, stdout: "No installed skills to update." };
     }
 
-    const results = await checkEntries(entries);
+    const { results, updated, failed } = await applyUpdates(names);
     const lines = results.filter((r) => r.status !== "update-available").map(formatCheckLine);
-    const toUpdate = results.filter((r) => r.status === "update-available");
-
-    let updated = 0;
-    let failed = 0;
-    const bySource = new Map<string, SkillLockEntry[]>();
-    for (const { entry } of toUpdate) {
-      const key = `${entry.sourceUrl}#${entry.ref ?? ""}`;
-      bySource.set(key, [...(bySource.get(key) ?? []), entry]);
+    for (const entry of updated) {
+      lines.push(`  ✓ Updated ${entry.installName} (${entry.skillFolderHash?.slice(0, 12)})`);
+    }
+    for (const { entry, error } of failed) {
+      lines.push(`  ✗ Failed to update ${entry.installName}: ${error}`);
     }
 
-    for (const group of bySource.values()) {
-      const first = group[0]!;
-      let tempDir: string | null = null;
-      try {
-        tempDir = await cloneRepo(first.sourceUrl, first.ref);
-        // Skills can move within the repo; rediscover instead of trusting the
-        // recorded folder blindly (the CLI re-runs `add --skill <name>`).
-        const skills = await discoverSkills(tempDir, undefined, {
-          fullDepth: true,
-          includeInternal: true,
-        });
-        for (const entry of group) {
-          const parsed: ParsedSource = {
-            type: entry.sourceType,
-            url: entry.sourceUrl,
-            ...(entry.ref ? { ref: entry.ref } : {}),
-          };
-          const match =
-            filterSkills(skills, [entry.name])[0] ?? filterSkills(skills, [entry.installName])[0];
-          if (!match) {
-            failed++;
-            lines.push(`  ✗ ${entry.installName} no longer found in ${entry.source}`);
-            continue;
-          }
-          const next = await installSkill(match, tempDir, parsed, entry.source);
-          updated++;
-          lines.push(`  ✓ Updated ${next.installName} (${next.skillFolderHash?.slice(0, 12)})`);
-          bb.log.info(`updated skill ${next.installName} from ${next.source}`);
-        }
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        for (const entry of group) {
-          failed++;
-          lines.push(`  ✗ Failed to update ${entry.installName}: ${detail}`);
-        }
-      } finally {
-        if (tempDir) await cleanupTempDir(tempDir).catch(() => {});
-      }
-    }
-
+    const changed = updated.length + failed.length;
     const summary =
-      toUpdate.length === 0
+      changed === 0
         ? "✓ All skills are up to date"
-        : `Updated ${updated} skill(s)${failed > 0 ? `, ${failed} failed` : ""}`;
+        : `Updated ${updated.length} skill(s)${failed.length > 0 ? `, ${failed.length} failed` : ""}`;
     return {
-      exitCode: failed > 0 || results.some((r) => r.status === "error") ? 1 : 0,
+      exitCode: failed.length > 0 || results.some((r) => r.status === "error") ? 1 : 0,
       stdout: `${lines.join("\n")}\n${summary}`.trim(),
     };
   }
@@ -463,37 +681,21 @@ export default function plugin(bb: BbPluginApi) {
     if (names.length === 0) {
       return { exitCode: 1, stderr: "Usage: bb skills remove <skill> [skill...]" };
     }
-    const skillsRoot = await resolveSkillsRoot();
-    const lines: string[] = [];
-    let failed = 0;
-    for (const name of names) {
-      const entries = selectEntries(await readLock(), [name]);
-      if (entries.length === 0) {
-        failed++;
-        lines.push(`✗ ${name} is not installed`);
-        continue;
-      }
-      for (const entry of entries) {
-        const dir = join(skillsRoot, entry.installName);
-        if (isPathSafe(skillsRoot, dir) && dir !== skillsRoot) {
-          await rm(dir, { recursive: true, force: true });
-        }
-        await bb.storage.kv.delete(`${LOCK_PREFIX}${entry.installName}`);
-        lines.push(`✓ Removed ${entry.installName}`);
-      }
-    }
-    return { exitCode: failed > 0 ? 1 : 0, stdout: lines.join("\n") };
+    const { removed, missing } = await removeSkills(names);
+    const lines = [
+      ...removed.map((name) => `✓ Removed ${name}`),
+      ...missing.map((name) => `✗ ${name} is not installed`),
+    ];
+    return { exitCode: missing.length > 0 ? 1 : 0, stdout: lines.join("\n") };
   }
 
   async function runFind(queryParts: string[]): Promise<CliResult> {
     const query = queryParts.join(" ").trim();
-    const page = await bb.sdk.skills.registry.search(
-      query ? { query, perPage: 10 } : { perPage: 10 },
-    );
-    if (page.skills.length === 0) {
+    const { skills } = await searchRegistry(query);
+    if (skills.length === 0) {
       return { exitCode: 0, stdout: `No skills found on skills.sh for "${query}"` };
     }
-    const lines = page.skills.map((skill) => {
+    const lines = skills.map((skill) => {
       const summary = skill.summary ? ` — ${skill.summary.slice(0, 100)}` : "";
       return `  ${skill.id}  (${skill.installs.toLocaleString()} installs)${summary}\n    Install: bb skills add ${skill.source} --skill ${skill.skillId}`;
     });

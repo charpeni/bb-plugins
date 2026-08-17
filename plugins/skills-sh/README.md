@@ -10,6 +10,14 @@ plugin tracks each install with the same folder-hash mechanism as the skills
 CLI — the git tree SHA of the skill folder — so `update` only rewrites a skill
 when its source actually differs.
 
+## Panel
+
+The plugin adds a **Skills.sh** panel to bb's sidebar: search the skills.sh
+registry (or paste `owner/repo` / a skills.sh URL to install straight from a
+source), see installed skills with their tracked version, check for upstream
+drift, and update or remove skills — all backed by the same operations as the
+CLI below.
+
 ## Usage
 
 ```sh

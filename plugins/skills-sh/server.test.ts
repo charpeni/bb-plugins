@@ -3,9 +3,12 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import type { PluginRpcResult } from "@get-bb/plugin-sdk";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import plugin from "./server";
+import plugin, { type skillsRpcContract } from "./server";
+
+type RpcContract = typeof skillsRpcContract;
 
 const execFileAsync = promisify(execFile);
 
@@ -42,6 +45,13 @@ describe("bb-plugin-skills-sh", () => {
 
   async function runCli(argv: string[]) {
     return harness.behavior.runCli(argv);
+  }
+
+  async function callRpc<M extends keyof RpcContract>(
+    method: M,
+    input: unknown,
+  ): Promise<PluginRpcResult<RpcContract[M]>> {
+    return (await harness.callRpc(method, input)) as PluginRpcResult<RpcContract[M]>;
   }
 
   beforeEach(async () => {
@@ -205,5 +215,78 @@ describe("bb-plugin-skills-sh", () => {
 
     const unknown = await runCli(["bogus"]);
     expect(unknown.exitCode).toBe(1);
+  });
+
+  it("drives the full install → check → update → remove cycle over RPC", async () => {
+    const { installed } = await callRpc("install", { source: `file://${fixtureRepo}` });
+    expect(installed.map((s: { installName: string }) => s.installName).sort()).toEqual([
+      "alpha",
+      "beta",
+    ]);
+
+    const status = await callRpc("status", null);
+    expect(status.skillsRoot).toBe(skillsRoot);
+    expect(status.skills).toHaveLength(2);
+    expect(status.skills[0]).toMatchObject({ installName: "alpha", hashKind: "git-tree" });
+
+    const clean = await callRpc("check", {});
+    expect(clean.results.every((r: { status: string }) => r.status === "up-to-date")).toBe(true);
+
+    await writeSkill(fixtureRepo, "skills/alpha", "alpha", "Alpha v2");
+    await git(fixtureRepo, "add", "-A");
+    await git(fixtureRepo, "commit", "-m", "update alpha");
+
+    const report = await callRpc("update", {});
+    expect(report.updated.map((s: { installName: string }) => s.installName)).toEqual(["alpha"]);
+    expect(report.failed).toEqual([]);
+    expect(await readFile(join(skillsRoot, "alpha/SKILL.md"), "utf-8")).toContain("Alpha v2");
+
+    const removal = await callRpc("remove", { skills: ["alpha", "ghost"] });
+    expect(removal).toEqual({ removed: ["alpha"], missing: ["ghost"] });
+    expect(await exists(join(skillsRoot, "alpha"))).toBe(false);
+  });
+
+  it("previews a source's skills with installed flags over RPC", async () => {
+    await callRpc("install", { source: `file://${fixtureRepo}`, skills: ["alpha"] });
+
+    const preview = await callRpc("previewSource", { source: `file://${fixtureRepo}` });
+    const byName = new Map(
+      preview.skills.map((s: { name: string; installed: boolean }) => [s.name, s.installed]),
+    );
+    expect(byName.get("alpha")).toBe(true);
+    expect(byName.get("beta")).toBe(false);
+  });
+
+  it("serves registry search over RPC with trimmed fields", async () => {
+    harness.sdk.stub("skills.registry.search", async () => ({
+      skills: [
+        {
+          id: "anthropics/skills/pdf",
+          source: "anthropics/skills",
+          skillId: "pdf",
+          name: "pdf",
+          installs: 12345,
+          stars: null,
+          installUrl: null,
+          url: "https://www.skills.sh/anthropics/skills/pdf",
+          topic: null,
+          summary: "Extract text from PDFs",
+        },
+      ],
+      pagination: { page: 0, perPage: 12, total: 1, hasMore: false },
+      ranking: "all-time",
+    }));
+
+    const page = await callRpc("search", { query: "pdf" });
+    expect(page.total).toBe(1);
+    expect(page.skills[0]).toEqual({
+      id: "anthropics/skills/pdf",
+      source: "anthropics/skills",
+      skillId: "pdf",
+      name: "pdf",
+      installs: 12345,
+      summary: "Extract text from PDFs",
+      url: "https://www.skills.sh/anthropics/skills/pdf",
+    });
   });
 });

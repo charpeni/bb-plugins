@@ -91,6 +91,9 @@ importers:
       yaml:
         specifier: ^2.8.2
         version: 2.9.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@get-bb/plugin-sdk':
         specifier: 0.4.6
@@ -101,6 +104,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.1
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
       bb-app:
         specifier: ^0.38.0
         version: 0.38.0(ws@8.21.3)
