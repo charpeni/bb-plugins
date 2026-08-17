@@ -15,6 +15,14 @@ import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
 const SAMPLE_DURATION_MS = 200;
+const SAMPLE_INTERVAL_MS = 30_000;
+const RETENTION_MS = 31 * 86_400_000;
+
+const HISTORY_RANGES = {
+  "1d": { windowMs: 86_400_000, bucketMs: 300_000 },
+  "7d": { windowMs: 7 * 86_400_000, bucketMs: 1_800_000 },
+  "30d": { windowMs: 30 * 86_400_000, bucketMs: 7_200_000 },
+} as const;
 
 const usageSchema = z.object({
   usedBytes: z.number().int().nonnegative(),
@@ -41,12 +49,43 @@ export const statsSchema = z.object({
   loadAverage: z.tuple([z.number(), z.number(), z.number()]),
 });
 
+export const historyRangeSchema = z.enum(["1d", "7d", "30d"]);
+
+export const historySchema = z.object({
+  range: historyRangeSchema,
+  windowMs: z.number().int().positive(),
+  bucketMs: z.number().int().positive(),
+  sampleIntervalMs: z.number().int().positive(),
+  earliestSampledAt: z.number().int().nonnegative().nullable(),
+  points: z.array(
+    z.object({
+      t: z.number().int().nonnegative(),
+      cpuPercent: z.number().min(0).max(100),
+      memoryPercent: z.number().min(0).max(100),
+      diskPercent: z.number().min(0).max(100),
+    }),
+  ),
+});
+
 export const rpcContract = defineRpcContract({
   stats: { input: z.null(), output: statsSchema },
+  history: { input: z.object({ range: historyRangeSchema }).strict(), output: historySchema },
 });
 
 type CpuTicks = { idle: number; total: number };
 type SystemStats = z.infer<typeof statsSchema>;
+type SystemHistory = z.infer<typeof historySchema>;
+type HistoryRange = z.infer<typeof historyRangeSchema>;
+type PluginDatabase = ReturnType<BbPluginApi["storage"]["database"]>;
+
+const MIGRATIONS = [
+  `CREATE TABLE IF NOT EXISTS samples (
+    sampled_at INTEGER PRIMARY KEY,
+    cpu_percent REAL NOT NULL,
+    memory_percent REAL NOT NULL,
+    disk_percent REAL NOT NULL
+  )`,
+];
 
 function cpuTicks(): CpuTicks {
   let idle = 0;
@@ -65,6 +104,22 @@ function percent(used: number, total: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sleepUntilAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
+  });
 }
 
 async function cpuSpeedMHz(cpuList: ReturnType<typeof cpus>): Promise<number | null> {
@@ -139,6 +194,56 @@ async function collectStats(): Promise<SystemStats> {
   };
 }
 
+async function recordSample(db: PluginDatabase): Promise<void> {
+  const stats = await collectStats();
+  db.prepare(
+    "INSERT OR REPLACE INTO samples (sampled_at, cpu_percent, memory_percent, disk_percent) VALUES (?, ?, ?, ?)",
+  ).run(stats.sampledAt, stats.cpu.usagePercent, stats.memory.usedPercent, stats.disk.usedPercent);
+  db.prepare("DELETE FROM samples WHERE sampled_at < ?").run(stats.sampledAt - RETENTION_MS);
+}
+
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, value));
+}
+
+function queryHistory(db: PluginDatabase, range: HistoryRange, now = Date.now()): SystemHistory {
+  const { windowMs, bucketMs } = HISTORY_RANGES[range];
+  const rows = db
+    .prepare(
+      `SELECT CAST(sampled_at / ? AS INTEGER) * ? AS bucket_start,
+              AVG(cpu_percent) AS cpu_percent,
+              AVG(memory_percent) AS memory_percent,
+              AVG(disk_percent) AS disk_percent
+         FROM samples
+        WHERE sampled_at >= ?
+        GROUP BY bucket_start
+        ORDER BY bucket_start`,
+    )
+    .all(bucketMs, bucketMs, now - windowMs) as Array<{
+    bucket_start: number;
+    cpu_percent: number;
+    memory_percent: number;
+    disk_percent: number;
+  }>;
+  const { earliest } = db.prepare("SELECT MIN(sampled_at) AS earliest FROM samples").get() as {
+    earliest: number | null;
+  };
+
+  return {
+    range,
+    windowMs,
+    bucketMs,
+    sampleIntervalMs: SAMPLE_INTERVAL_MS,
+    earliestSampledAt: earliest,
+    points: rows.map((row) => ({
+      t: row.bucket_start,
+      cpuPercent: clampPercent(row.cpu_percent),
+      memoryPercent: clampPercent(row.memory_percent),
+      diskPercent: clampPercent(row.disk_percent),
+    })),
+  };
+}
+
 function formatBytes(bytes: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
   let value = bytes;
@@ -171,9 +276,63 @@ function formatStats(stats: SystemStats): string {
   ].join("\n");
 }
 
+function formatHistory(history: SystemHistory): string {
+  if (history.points.length === 0) {
+    return "No history recorded yet. Samples are collected every 30s while the plugin is loaded.";
+  }
+  const summarize = (select: (point: SystemHistory["points"][number]) => number) => {
+    const values = history.points.map(select);
+    const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const peak = Math.max(...values);
+    return `avg ${average.toFixed(1)}%  max ${peak.toFixed(1)}%`;
+  };
+  const bucketLabel =
+    history.bucketMs < 3_600_000
+      ? `${history.bucketMs / 60_000} min`
+      : `${history.bucketMs / 3_600_000} h`;
+  return [
+    `History   ${history.range} / ${history.points.length} buckets of ${bucketLabel}`,
+    `CPU       ${summarize((point) => point.cpuPercent)}`,
+    `Memory    ${summarize((point) => point.memoryPercent)}`,
+    `Disk      ${summarize((point) => point.diskPercent)}`,
+    history.earliestSampledAt === null
+      ? ""
+      : `Since     ${new Date(history.earliestSampledAt).toLocaleString()}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+const CLI_USAGE = [
+  "Usage: bb system-monitor [show|history] [--json]",
+  "",
+  "  show      Print the current machine statistics (default)",
+  "  history   Summarize recorded history (--range 1d|7d|30d, default 1d)",
+].join("\n");
+
 export default function plugin(bb: BbPluginApi) {
+  const db = bb.storage.database();
+  bb.storage.migrate(db, MIGRATIONS);
+
   bb.rpc.register(rpcContract, {
     stats: collectStats,
+    history: ({ range }) => queryHistory(db, range),
+  });
+
+  bb.background.service("sampler", {
+    async start(signal) {
+      while (!signal.aborted) {
+        try {
+          await recordSample(db);
+        } catch (cause) {
+          if (signal.aborted) break;
+          bb.log.warn(
+            `Failed to record a metrics sample: ${cause instanceof Error ? cause.message : String(cause)}`,
+          );
+        }
+        await sleepUntilAborted(SAMPLE_INTERVAL_MS, signal);
+      }
+    },
   });
 
   bb.cli.register({
@@ -185,29 +344,53 @@ export default function plugin(bb: BbPluginApi) {
         summary: "Print the current machine statistics",
         usage: "bb system-monitor [show] [--json]",
       },
+      {
+        name: "history",
+        summary: "Summarize recorded CPU, memory, and disk history",
+        usage: "bb system-monitor history [--range 1d|7d|30d] [--json]",
+      },
     ],
     async run(argv) {
-      if (argv.includes("--help") || argv.includes("-h")) {
-        return {
-          exitCode: 0,
-          stdout:
-            "Usage: bb system-monitor [show] [--json]\n\nShows statistics for the host running the bb server.",
-        };
+      let help = false;
+      let json = false;
+      let range: HistoryRange = "1d";
+      const positional: string[] = [];
+      const errors: string[] = [];
+      for (let index = 0; index < argv.length; index += 1) {
+        const arg = argv[index]!;
+        if (arg === "--help" || arg === "-h") {
+          help = true;
+        } else if (arg === "--json") {
+          json = true;
+        } else if (arg === "--range" || arg.startsWith("--range=")) {
+          const value = arg.startsWith("--range=") ? arg.slice("--range=".length) : argv[++index];
+          const parsed = historyRangeSchema.safeParse(value);
+          if (parsed.success) range = parsed.data;
+          else
+            errors.push(`Invalid --range value: ${value ?? "(missing)"} (expected 1d, 7d, or 30d)`);
+        } else if (!arg.startsWith("-")) {
+          positional.push(arg);
+        }
       }
 
-      const positional = argv.filter((arg) => !arg.startsWith("-"));
-      if (positional.length > 1 || (positional[0] && positional[0] !== "show")) {
+      if (help) return { exitCode: 0, stdout: CLI_USAGE };
+      if (errors.length > 0) return { exitCode: 2, stderr: `${errors.join("\n")}\n${CLI_USAGE}` };
+
+      const command = positional[0] ?? "show";
+      if (positional.length > 1 || (command !== "show" && command !== "history")) {
+        return { exitCode: 2, stderr: `Unknown command: ${positional.join(" ")}\n${CLI_USAGE}` };
+      }
+
+      if (command === "history") {
+        const history = queryHistory(db, range);
         return {
-          exitCode: 2,
-          stderr: `Unknown command: ${positional.join(" ")}\nUsage: bb system-monitor [show] [--json]`,
+          exitCode: 0,
+          stdout: json ? JSON.stringify(history, null, 2) : formatHistory(history),
         };
       }
 
       const stats = await collectStats();
-      return {
-        exitCode: 0,
-        stdout: argv.includes("--json") ? JSON.stringify(stats, null, 2) : formatStats(stats),
-      };
+      return { exitCode: 0, stdout: json ? JSON.stringify(stats, null, 2) : formatStats(stats) };
     },
   });
 }

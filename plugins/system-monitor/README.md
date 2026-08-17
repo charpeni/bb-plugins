@@ -1,7 +1,8 @@
 # System Monitor plugin
 
 Shows live CPU, memory, disk, load-average, and uptime data for the machine
-running the bb server.
+running the bb server, plus usage history charts over the last day, week, or
+month.
 
 ## Install
 
@@ -24,11 +25,25 @@ CLI:
 ```sh
 bb system-monitor
 bb system-monitor --json
+bb system-monitor history --range 7d
+bb system-monitor history --range 30d --json
 ```
 
 The panel refreshes every five seconds. Because plugin backend code runs in the
 bb server process, the values describe the server host, not a separately
 enrolled execution machine.
+
+## History
+
+While the plugin is loaded, a background service records a CPU/memory/disk
+sample every 30 seconds into the plugin's own SQLite database and keeps 31
+days of data. Each metric card embeds a sparkline of that history over three
+ranges — **1D** (5-minute averages), **7D** (30-minute averages), and **30D**
+(2-hour averages) — with the range average and peak below it and a hover
+crosshair synced across the three cards. The selected range is remembered
+across reloads, and `bb system-monitor history --json` exposes the exact
+bucket values. Gaps where the bb server was not running are left as breaks
+in the line rather than interpolated.
 
 ## Develop
 
