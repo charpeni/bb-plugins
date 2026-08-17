@@ -53,12 +53,7 @@ function cpuTicks(): CpuTicks {
   let total = 0;
   for (const cpu of cpus()) {
     idle += cpu.times.idle;
-    total +=
-      cpu.times.user +
-      cpu.times.nice +
-      cpu.times.sys +
-      cpu.times.idle +
-      cpu.times.irq;
+    total += cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq;
   }
   return { idle, total };
 }
@@ -72,25 +67,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function cpuSpeedMHz(
-  cpuList: ReturnType<typeof cpus>,
-): Promise<number | null> {
-  const reportedSpeeds = cpuList
-    .map((cpu) => cpu.speed)
-    .filter((speed) => speed > 0);
+async function cpuSpeedMHz(cpuList: ReturnType<typeof cpus>): Promise<number | null> {
+  const reportedSpeeds = cpuList.map((cpu) => cpu.speed).filter((speed) => speed > 0);
   if (reportedSpeeds.length > 0) {
-    return (
-      reportedSpeeds.reduce((sum, speed) => sum + speed, 0) /
-      reportedSpeeds.length
-    );
+    return reportedSpeeds.reduce((sum, speed) => sum + speed, 0) / reportedSpeeds.length;
   }
 
   if (platform() !== "linux") return null;
   try {
     const cpuInfo = await readFile("/proc/cpuinfo", "utf8");
-    const speeds = Array.from(
-      cpuInfo.matchAll(/^cpu MHz\s*:\s*([\d.]+)$/gim),
-      (match) => Number(match[1]),
+    const speeds = Array.from(cpuInfo.matchAll(/^cpu MHz\s*:\s*([\d.]+)$/gim), (match) =>
+      Number(match[1]),
     ).filter((speed) => Number.isFinite(speed) && speed > 0);
     if (speeds.length === 0) return null;
     return speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length;
@@ -209,10 +196,7 @@ export default function plugin(bb: BbPluginApi) {
       }
 
       const positional = argv.filter((arg) => !arg.startsWith("-"));
-      if (
-        positional.length > 1 ||
-        (positional[0] && positional[0] !== "show")
-      ) {
+      if (positional.length > 1 || (positional[0] && positional[0] !== "show")) {
         return {
           exitCode: 2,
           stderr: `Unknown command: ${positional.join(" ")}\nUsage: bb system-monitor [show] [--json]`,
@@ -222,9 +206,7 @@ export default function plugin(bb: BbPluginApi) {
       const stats = await collectStats();
       return {
         exitCode: 0,
-        stdout: argv.includes("--json")
-          ? JSON.stringify(stats, null, 2)
-          : formatStats(stats),
+        stdout: argv.includes("--json") ? JSON.stringify(stats, null, 2) : formatStats(stats),
       };
     },
   });

@@ -2,13 +2,17 @@
   "name": "bb-plugin-system-monitor",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "description": "Live CPU, memory, disk, load, and uptime metrics for the bb server host.",
-  "license": "MIT",
+  "keywords": [
+    "bb-plugin",
+    "system-metrics",
+    "system-monitor"
+  ],
   "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/system-monitor#readme",
   "bugs": {
     "url": "https://github.com/charpeni/bb-plugins/issues"
   },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/charpeni/bb-plugins.git",
@@ -20,24 +24,7 @@
     "app.tsx",
     "README.md"
   ],
-  "engines": {
-    "bb": ">=0.38",
-    "bbPluginSdk": ">=0.4.6"
-  },
-  "bb": {
-    "name": "System Monitor",
-    "description": "Live CPU, memory, disk, load, and uptime statistics for the bb server host.",
-    "branding": {
-      "icon": "ChartColumn"
-    },
-    "server": "./server.ts",
-    "app": "./app.tsx"
-  },
-  "keywords": [
-    "bb-plugin",
-    "system-monitor",
-    "system-metrics"
-  ],
+  "type": "module",
   "scripts": {
     "build": "bb plugin build",
     "test": "vitest run --config vitest.config.ts",
@@ -56,5 +43,18 @@
     "cron-parser": "^5.5.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.1"
+  },
+  "engines": {
+    "bb": ">=0.38",
+    "bbPluginSdk": ">=0.4.6"
+  },
+  "bb": {
+    "name": "System Monitor",
+    "description": "Live CPU, memory, disk, load, and uptime statistics for the bb server host.",
+    "branding": {
+      "icon": "ChartColumn"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
   }
 }

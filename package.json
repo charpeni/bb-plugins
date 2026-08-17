@@ -2,17 +2,22 @@
   "name": "bb-plugins",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.20.0",
-  "engines": {
-    "node": ">=22"
-  },
   "scripts": {
     "build": "pnpm -r run build",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "validate": "node scripts/validate-manifests.mjs"
   },
   "devDependencies": {
-    "ajv": "^8.17.1"
-  }
+    "ajv": "^8.17.1",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.20.0"
 }

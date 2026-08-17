@@ -116,9 +116,7 @@ function SystemMonitorPanel() {
         <div className="max-w-sm rounded-xl border bg-card p-6 text-center shadow-sm">
           <div className="mx-auto size-3 animate-pulse rounded-full bg-primary" />
           <p className="mt-4 text-sm font-medium">
-            {error
-              ? "Could not read system metrics"
-              : "Sampling system metrics"}
+            {error ? "Could not read system metrics" : "Sampling system metrics"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {error ?? "Measuring CPU activity over a short interval..."}
@@ -138,8 +136,7 @@ function SystemMonitorPanel() {
               <p className="text-sm font-medium">{stats.hostname}</p>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              bb server host / {stats.platform} {stats.release} /{" "}
-              {stats.architecture}
+              bb server host / {stats.platform} {stats.release} / {stats.architecture}
             </p>
           </div>
           <p className="text-xs tabular-nums text-muted-foreground">
@@ -184,9 +181,7 @@ function SystemMonitorPanel() {
           <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat
               label="Load average"
-              value={stats.loadAverage
-                .map((value) => value.toFixed(2))
-                .join(" / ")}
+              value={stats.loadAverage.map((value) => value.toFixed(2)).join(" / ")}
             />
             <Stat label="Uptime" value={formatUptime(stats.uptimeSeconds)} />
             <Stat label="Kernel" value={`${stats.platform} ${stats.release}`} />

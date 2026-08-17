@@ -85,9 +85,7 @@ for (const entry of marketplace.plugins) {
   if (git.subdir) {
     const id = idsBySource.get(git.subdir);
     if (id === undefined) {
-      fail(
-        `marketplace.json: entry "${entry.id}" subdir ${git.subdir} is not in .bb/plugins.json`,
-      );
+      fail(`marketplace.json: entry "${entry.id}" subdir ${git.subdir} is not in .bb/plugins.json`);
     } else if (id !== entry.id) {
       fail(
         `marketplace.json: entry "${entry.id}" installs ${git.subdir}, which is plugin "${id}" — BB refuses mismatched ids`,
