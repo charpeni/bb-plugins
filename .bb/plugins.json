@@ -4,6 +4,7 @@
   "name": "charpeni-plugins",
   "plugins": [
     { "name": "dependabot", "source": "./plugins/dependabot" },
+    { "name": "disk-usage", "source": "./plugins/disk-usage" },
     { "name": "system-monitor", "source": "./plugins/system-monitor" }
   ]
 }
