@@ -12,12 +12,12 @@
     "validate": "node scripts/validate-manifests.mjs"
   },
   "devDependencies": {
-    "ajv": "^8.17.1",
+    "ajv": "^8.20.0",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0"
   },
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@11.20.0"
+  "packageManager": "pnpm@11.22.0"
 }
