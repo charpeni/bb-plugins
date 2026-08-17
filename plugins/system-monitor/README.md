@@ -4,6 +4,8 @@ Shows live CPU, memory, disk, load-average, and uptime data for the machine
 running the bb server, plus usage history charts over the last day, week, or
 month.
 
+<img width="2952" height="1102" alt="bettershot_1787008930979" src="https://github.com/user-attachments/assets/023c5632-18e5-497a-85c4-97019b071a53" />
+
 ## Install
 
 From the marketplace:
