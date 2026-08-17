@@ -7,7 +7,12 @@ on:
 
 jobs:
   verify:
+    name: ${{ matrix.task }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [validate, lint, fmt:check, typecheck, test, build]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
@@ -16,20 +21,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run validate
-      - run: pnpm run lint
-      - run: pnpm run fmt:check
-      - run: pnpm run typecheck
-      - run: pnpm run test
       # bb downloads its plugin build toolchain into <dataDir>/plugins on
       # first use; cache it so `bb plugin build` stays fast.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: matrix.task == 'build'
         with:
           path: ~/.bb/plugins/toolchain-*
           key: bb-toolchain-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             bb-toolchain-${{ runner.os }}-
-      - run: pnpm run build
+      - run: pnpm run ${{ matrix.task }}
 
   # Git installs run `npm install --omit=dev` in the plugin directory with no
   # workspace context — prove every plugin survives that exact command.
