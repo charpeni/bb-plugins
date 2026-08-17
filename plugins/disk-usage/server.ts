@@ -1,6 +1,9 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { formatBytes, scanPath, type ScanResult } from "./scan.js";
+import { formatAgo, formatBytes, resolveScanPath, scanPath, type ScanResult } from "./scan.js";
+
+const CACHE_LIMIT = 100;
+export const PROGRESS_CHANNEL = "progress";
 
 export const entrySchema = z.object({
   name: z.string(),
@@ -19,20 +22,30 @@ export const scanSchema = z.object({
   omittedEntryCount: z.number().int().nonnegative(),
   durationMs: z.number().nonnegative(),
   scannedAt: z.number().int().nonnegative(),
+  fromCache: z.boolean(),
   entries: z.array(entrySchema),
 });
 
 export const rpcContract = defineRpcContract({
   scan: {
-    input: z.object({ path: z.string().nullable() }).strict(),
+    input: z
+      .object({
+        path: z.string().nullable(),
+        refresh: z.boolean().optional(),
+        scanId: z.string().max(128).nullable().optional(),
+      })
+      .strict(),
     output: scanSchema,
   },
 });
 
-function formatScan(result: ScanResult, top: number): string {
+function formatScan(result: ScanResult & { fromCache: boolean }, top: number): string {
   const seconds = (result.durationMs / 1000).toFixed(result.durationMs >= 10_000 ? 0 : 1);
+  const origin = result.fromCache
+    ? `cached ${formatAgo(Date.now() - result.scannedAt)} ago — pass --refresh for a fresh scan`
+    : `scanned in ${seconds}s`;
   const lines = [
-    `${result.path} — ${formatBytes(result.totalBytes)} in ${result.entryCount.toLocaleString("en-US")} entries (scanned in ${seconds}s)`,
+    `${result.path} — ${formatBytes(result.totalBytes)} in ${result.entryCount.toLocaleString("en-US")} entries (${origin})`,
   ];
   if (result.truncated) {
     lines.push(`Warning: scan truncated after visiting the entry budget; sizes are partial.`);
@@ -57,11 +70,59 @@ function formatScan(result: ScanResult, top: number): string {
   return lines.join("\n");
 }
 
-const USAGE = "Usage: bb disk-usage [path] [--top N] [--json]";
+const USAGE = "Usage: bb disk-usage [path] [--top N] [--json] [--refresh]";
 
 export default function plugin(bb: BbPluginApi) {
+  // Last completed scan per resolved path, insertion-ordered for LRU eviction.
+  const cache = new Map<string, ScanResult>();
+  // Concurrent requests for the same path join one walk instead of racing.
+  const inFlight = new Map<string, Promise<ScanResult>>();
+
+  function remember(result: ScanResult): void {
+    cache.delete(result.path);
+    cache.set(result.path, result);
+    while (cache.size > CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+
+  async function getScan(
+    requestedPath: string | null,
+    options: { refresh: boolean; scanId: string | null },
+  ): Promise<ScanResult & { fromCache: boolean }> {
+    const target = resolveScanPath(requestedPath);
+
+    if (!options.refresh) {
+      const cached = cache.get(target);
+      if (cached) return { ...cached, fromCache: true };
+    }
+
+    let pending = inFlight.get(target);
+    if (!pending) {
+      pending = scanPath(target, {
+        onProgress: (progress) =>
+          bb.realtime.publish(PROGRESS_CHANNEL, {
+            scanId: options.scanId,
+            path: target,
+            ...progress,
+          }),
+      })
+        .then((result) => {
+          remember(result);
+          return result;
+        })
+        .finally(() => inFlight.delete(target));
+      inFlight.set(target, pending);
+    }
+
+    return { ...(await pending), fromCache: false };
+  }
+
   bb.rpc.register(rpcContract, {
-    scan: ({ path }) => scanPath(path),
+    scan: ({ path, refresh, scanId }) =>
+      getScan(path, { refresh: refresh ?? false, scanId: scanId ?? null }),
   });
 
   bb.cli.register({
@@ -72,14 +133,14 @@ export default function plugin(bb: BbPluginApi) {
         name: "scan",
         summary:
           "Scan a directory (default: the server home directory) and list the largest entries",
-        usage: "bb disk-usage [path] [--top N] [--json]",
+        usage: "bb disk-usage [path] [--top N] [--json] [--refresh]",
       },
     ],
     async run(argv) {
       if (argv.includes("--help") || argv.includes("-h")) {
         return {
           exitCode: 0,
-          stdout: `${USAGE}\n\nScans the filesystem of the host running the bb server and lists the largest entries per directory. Symlinks are never followed.`,
+          stdout: `${USAGE}\n\nScans the filesystem of the host running the bb server and lists the largest entries per directory. Symlinks are never followed. Results are cached per path until --refresh.`,
         };
       }
 
@@ -87,7 +148,7 @@ export default function plugin(bb: BbPluginApi) {
       const positional: string[] = [];
       for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index]!;
-        if (argument === "--json") continue;
+        if (argument === "--json" || argument === "--refresh") continue;
         if (argument === "--top") {
           const value = Number(argv[index + 1]);
           if (!Number.isInteger(value) || value <= 0) {
@@ -107,9 +168,12 @@ export default function plugin(bb: BbPluginApi) {
         return { exitCode: 2, stderr: `Too many arguments: ${positional.join(" ")}\n${USAGE}` };
       }
 
-      let result: ScanResult;
+      let result: ScanResult & { fromCache: boolean };
       try {
-        result = await scanPath(positional[0] ?? null);
+        result = await getScan(positional[0] ?? null, {
+          refresh: argv.includes("--refresh"),
+          scanId: null,
+        });
       } catch (cause) {
         return { exitCode: 1, stderr: cause instanceof Error ? cause.message : String(cause) };
       }

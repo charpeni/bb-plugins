@@ -7,6 +7,10 @@ import { dirname, join, resolve } from "node:path";
 // the walk stops descending and the result is flagged truncated.
 export const MAX_VISITED_ENTRIES = 500_000;
 export const MAX_RETURNED_ENTRIES = 100;
+// Directory reads run concurrently up to this cap; fs work funnels through
+// libuv's threadpool anyway, so more slots buy queueing, not throughput.
+const WALK_CONCURRENCY = 16;
+const PROGRESS_INTERVAL_MS = 200;
 
 export type ScanEntryKind = "directory" | "file" | "other";
 
@@ -30,70 +34,139 @@ export interface ScanResult {
   entries: ScanEntry[];
 }
 
-interface WalkBudget {
+export interface ScanProgress {
+  visitedCount: number;
+  totalBytes: number;
+  skippedCount: number;
+  currentPath: string;
+  elapsedMs: number;
+}
+
+export interface ScanOptions {
+  onProgress?: (progress: ScanProgress) => void;
+}
+
+class Semaphore {
+  private readonly queue: (() => void)[] = [];
+  private available: number;
+
+  constructor(slots: number) {
+    this.available = slots;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available -= 1;
+      return;
+    }
+    await new Promise<void>((release) => this.queue.push(release));
+  }
+
+  release(): void {
+    const next = this.queue.shift();
+    if (next) next();
+    else this.available += 1;
+  }
+}
+
+interface WalkContext {
   remaining: number;
   skipped: number;
   truncated: boolean;
   // Hardlinked inodes (nlink > 1) are counted once, keyed by dev:ino.
   seenHardlinks: Set<string>;
+  semaphore: Semaphore;
+  bytesSoFar: number;
+  currentPath: string;
+  startedAt: number;
+  lastReportAt: number;
+  onProgress?: (progress: ScanProgress) => void;
 }
 
-async function fileBytes(path: string, budget: WalkBudget): Promise<number> {
+function reportProgress(context: WalkContext, force = false): void {
+  if (!context.onProgress) return;
+  const now = Date.now();
+  if (!force && now - context.lastReportAt < PROGRESS_INTERVAL_MS) return;
+  context.lastReportAt = now;
+  context.onProgress({
+    visitedCount: MAX_VISITED_ENTRIES - context.remaining,
+    totalBytes: context.bytesSoFar,
+    skippedCount: context.skipped,
+    currentPath: context.currentPath,
+    elapsedMs: now - context.startedAt,
+  });
+}
+
+async function fileBytes(path: string, context: WalkContext): Promise<number> {
   try {
     const stats = await lstat(path);
     if (stats.nlink > 1) {
       const key = `${stats.dev}:${stats.ino}`;
-      if (budget.seenHardlinks.has(key)) return 0;
-      budget.seenHardlinks.add(key);
+      if (context.seenHardlinks.has(key)) return 0;
+      context.seenHardlinks.add(key);
     }
     // Allocated blocks measure real disk usage (sparse files); fall back to
     // apparent size on filesystems that report no blocks for inline data.
-    return stats.blocks > 0 ? stats.blocks * 512 : stats.size;
+    const bytes = stats.blocks > 0 ? stats.blocks * 512 : stats.size;
+    context.bytesSoFar += bytes;
+    return bytes;
   } catch {
-    budget.skipped += 1;
+    context.skipped += 1;
     return 0;
   }
 }
 
-async function readEntries(path: string, budget: WalkBudget): Promise<Dirent[] | null> {
+async function readEntries(path: string, context: WalkContext): Promise<Dirent[] | null> {
   try {
     return await readdir(path, { withFileTypes: true });
   } catch {
-    budget.skipped += 1;
+    context.skipped += 1;
     return null;
   }
 }
 
 async function walkTree(
   path: string,
-  budget: WalkBudget,
+  context: WalkContext,
 ): Promise<{ bytes: number; entryCount: number }> {
-  const dirents = await readEntries(path, budget);
-  if (dirents === null) return { bytes: 0, entryCount: 0 };
+  context.currentPath = path;
+  reportProgress(context);
 
   let bytes = 0;
   let entryCount = 0;
   const subdirectories: string[] = [];
-  const files: string[] = [];
 
-  for (const dirent of dirents) {
-    if (budget.remaining <= 0) {
-      budget.truncated = true;
-      break;
+  // The slot covers this directory's readdir + file stats; it is released
+  // before recursing so waiting children can never deadlock the pool.
+  await context.semaphore.acquire();
+  try {
+    const dirents = await readEntries(path, context);
+    if (dirents === null) return { bytes: 0, entryCount: 0 };
+
+    const files: string[] = [];
+    for (const dirent of dirents) {
+      if (context.remaining <= 0) {
+        context.truncated = true;
+        break;
+      }
+      context.remaining -= 1;
+      entryCount += 1;
+      // Symlinks are never followed; they and special files count as entries
+      // without measured bytes.
+      if (dirent.isDirectory()) subdirectories.push(join(path, dirent.name));
+      else if (dirent.isFile()) files.push(join(path, dirent.name));
     }
-    budget.remaining -= 1;
-    entryCount += 1;
-    // Symlinks are never followed; they and special files count as entries
-    // without measured bytes.
-    if (dirent.isDirectory()) subdirectories.push(join(path, dirent.name));
-    else if (dirent.isFile()) files.push(join(path, dirent.name));
+
+    const sizes = await Promise.all(files.map((filePath) => fileBytes(filePath, context)));
+    for (const size of sizes) bytes += size;
+  } finally {
+    context.semaphore.release();
   }
 
-  const sizes = await Promise.all(files.map((filePath) => fileBytes(filePath, budget)));
-  for (const size of sizes) bytes += size;
-
-  for (const subdirectory of subdirectories) {
-    const sub = await walkTree(subdirectory, budget);
+  const subResults = await Promise.all(
+    subdirectories.map((subdirectory) => walkTree(subdirectory, context)),
+  );
+  for (const sub of subResults) {
     bytes += sub.bytes;
     entryCount += sub.entryCount;
   }
@@ -101,10 +174,46 @@ async function walkTree(
   return { bytes, entryCount };
 }
 
-export async function scanPath(requestedPath: string | null): Promise<ScanResult> {
-  const startedAt = Date.now();
+async function measureChild(
+  parentPath: string,
+  dirent: Dirent,
+  context: WalkContext,
+): Promise<ScanEntry> {
+  const name = dirent.name;
+  const childPath = join(parentPath, name);
+  const kind: ScanEntryKind = dirent.isDirectory()
+    ? "directory"
+    : dirent.isFile()
+      ? "file"
+      : "other";
+
+  if (context.remaining <= 0) {
+    context.truncated = true;
+    return { name, kind, bytes: 0, entryCount: 0 };
+  }
+  context.remaining -= 1;
+
+  if (kind === "directory") {
+    const sub = await walkTree(childPath, context);
+    return { name, kind, bytes: sub.bytes, entryCount: sub.entryCount };
+  }
+  if (kind === "file") {
+    return { name, kind, bytes: await fileBytes(childPath, context), entryCount: 0 };
+  }
+  return { name, kind, bytes: 0, entryCount: 0 };
+}
+
+export function resolveScanPath(requestedPath: string | null): string {
   const trimmed = requestedPath?.trim();
-  const path = resolve(trimmed ? trimmed : homedir());
+  return resolve(trimmed ? trimmed : homedir());
+}
+
+export async function scanPath(
+  requestedPath: string | null,
+  options: ScanOptions = {},
+): Promise<ScanResult> {
+  const startedAt = Date.now();
+  const path = resolveScanPath(requestedPath);
 
   let rootStats;
   try {
@@ -114,44 +223,28 @@ export async function scanPath(requestedPath: string | null): Promise<ScanResult
   }
   if (!rootStats.isDirectory()) throw new Error(`Not a directory: ${path}`);
 
-  const budget: WalkBudget = {
+  const context: WalkContext = {
     remaining: MAX_VISITED_ENTRIES,
     skipped: 0,
     truncated: false,
     seenHardlinks: new Set(),
+    semaphore: new Semaphore(WALK_CONCURRENCY),
+    bytesSoFar: 0,
+    currentPath: path,
+    startedAt,
+    lastReportAt: 0,
+    onProgress: options.onProgress,
   };
+  reportProgress(context, true);
 
   const dirents = await readdir(path, { withFileTypes: true });
-  const entries: ScanEntry[] = [];
+  const entries = await Promise.all(dirents.map((dirent) => measureChild(path, dirent, context)));
+
   let totalBytes = 0;
-  let entryCount = 0;
-
-  for (const dirent of dirents) {
-    if (budget.remaining <= 0) {
-      budget.truncated = true;
-      break;
-    }
-    budget.remaining -= 1;
-    entryCount += 1;
-    const childPath = join(path, dirent.name);
-
-    if (dirent.isDirectory()) {
-      const sub = await walkTree(childPath, budget);
-      entries.push({
-        name: dirent.name,
-        kind: "directory",
-        bytes: sub.bytes,
-        entryCount: sub.entryCount,
-      });
-      totalBytes += sub.bytes;
-      entryCount += sub.entryCount;
-    } else if (dirent.isFile()) {
-      const bytes = await fileBytes(childPath, budget);
-      entries.push({ name: dirent.name, kind: "file", bytes, entryCount: 0 });
-      totalBytes += bytes;
-    } else {
-      entries.push({ name: dirent.name, kind: "other", bytes: 0, entryCount: 0 });
-    }
+  let entryCount = entries.length;
+  for (const entry of entries) {
+    totalBytes += entry.bytes;
+    entryCount += entry.entryCount;
   }
 
   entries.sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name));
@@ -163,8 +256,8 @@ export async function scanPath(requestedPath: string | null): Promise<ScanResult
     parentPath: parentPath === path ? null : parentPath,
     totalBytes,
     entryCount,
-    skippedCount: budget.skipped,
-    truncated: budget.truncated,
+    skippedCount: context.skipped,
+    truncated: context.truncated,
     omittedEntryCount: entries.length - returned.length,
     durationMs: Date.now() - startedAt,
     scannedAt: Date.now(),
@@ -182,4 +275,14 @@ export function formatBytes(bytes: number): string {
   }
   const digits = value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2;
   return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+export function formatAgo(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
 }

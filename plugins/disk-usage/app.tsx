@@ -1,10 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { definePluginApp, useRpc } from "@get-bb/plugin-sdk/app";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
 
 type ScanResult = PluginRpcResult<(typeof rpcContract)["scan"]>;
 type ScanEntry = ScanResult["entries"][number];
+
+interface ScanProgress {
+  scanId: string | null;
+  path: string;
+  visitedCount: number;
+  totalBytes: number;
+  skippedCount: number;
+  currentPath: string;
+  elapsedMs: number;
+}
+
+function isScanProgress(payload: unknown): payload is ScanProgress {
+  if (typeof payload !== "object" || payload === null) return false;
+  const candidate = payload as Record<string, unknown>;
+  return (
+    typeof candidate.path === "string" &&
+    typeof candidate.visitedCount === "number" &&
+    typeof candidate.totalBytes === "number" &&
+    typeof candidate.currentPath === "string"
+  );
+}
 
 function formatBytes(bytes: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
@@ -20,6 +41,22 @@ function formatBytes(bytes: number): string {
 
 function formatCount(count: number): string {
   return count.toLocaleString("en-US");
+}
+
+function formatAgo(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function truncateMiddle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const half = Math.floor((max - 1) / 2);
+  return `${text.slice(0, half)}…${text.slice(-half)}`;
 }
 
 function barTone(share: number): string {
@@ -38,6 +75,20 @@ function breadcrumbsOf(path: string): { label: string; path: string }[] {
     crumbs.push({ label: segment, path: current });
   }
   return crumbs;
+}
+
+function ProgressDetails({ progress }: { progress: ScanProgress }) {
+  return (
+    <>
+      <span className="tabular-nums">
+        {formatCount(progress.visitedCount)} entries · {formatBytes(progress.totalBytes)} so far ·{" "}
+        {(progress.elapsedMs / 1000).toFixed(0)}s
+      </span>
+      <span className="block truncate text-muted-foreground" title={progress.currentPath}>
+        {truncateMiddle(progress.currentPath, 72)}
+      </span>
+    </>
+  );
 }
 
 function EntryRow({
@@ -96,15 +147,29 @@ function DiskUsagePanel() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(true);
+  const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [pathDraft, setPathDraft] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const scanIdRef = useRef<string | null>(null);
+  const forceRefreshRef = useRef(false);
+
+  useRealtime("progress", (payload) => {
+    if (isScanProgress(payload) && payload.scanId === scanIdRef.current) {
+      setProgress(payload);
+    }
+  });
 
   useEffect(() => {
     let cancelled = false;
+    const scanId = crypto.randomUUID();
+    scanIdRef.current = scanId;
+    const refresh = forceRefreshRef.current;
+    forceRefreshRef.current = false;
     setIsScanning(true);
+    setProgress(null);
 
     rpc
-      .call("scan", { path })
+      .call("scan", { path, refresh, scanId })
       .then((next) => {
         if (cancelled) return;
         setResult(next);
@@ -115,7 +180,10 @@ function DiskUsagePanel() {
         setError(cause instanceof Error ? cause.message : String(cause));
       })
       .finally(() => {
-        if (!cancelled) setIsScanning(false);
+        if (cancelled) return;
+        setIsScanning(false);
+        setProgress(null);
+        scanIdRef.current = null;
       });
 
     return () => {
@@ -160,7 +228,10 @@ function DiskUsagePanel() {
             />
             <button
               type="button"
-              onClick={() => setRefreshNonce((nonce) => nonce + 1)}
+              onClick={() => {
+                forceRefreshRef.current = true;
+                setRefreshNonce((nonce) => nonce + 1);
+              }}
               disabled={isScanning}
               className="h-8 shrink-0 rounded-md border bg-card px-3 text-sm font-medium hover:bg-surface-recessed disabled:opacity-50"
             >
@@ -177,12 +248,25 @@ function DiskUsagePanel() {
 
         {!result && !error && (
           <div className="flex items-center justify-center rounded-xl border bg-card p-10">
-            <div className="text-center">
+            <div className="w-full max-w-md text-center">
               <div className="mx-auto size-3 animate-pulse rounded-full bg-primary" />
               <p className="mt-4 text-sm font-medium">Scanning disk usage</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Walking the directory tree on the server host…
-              </p>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {progress ? (
+                  <ProgressDetails progress={progress} />
+                ) : (
+                  "Walking the directory tree on the server host…"
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {result && isScanning && (
+          <div className="mb-3 flex items-center gap-3 rounded-lg border bg-card px-3 py-2 text-sm">
+            <span className="size-2 shrink-0 animate-pulse rounded-full bg-primary" />
+            <div className="min-w-0 flex-1">
+              {progress ? <ProgressDetails progress={progress} /> : <span>Scanning…</span>}
             </div>
           </div>
         )}
@@ -210,8 +294,10 @@ function DiskUsagePanel() {
                   {formatBytes(result.totalBytes)}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {formatCount(result.entryCount)} entries · scanned in{" "}
-                  {(result.durationMs / 1000).toFixed(1)}s
+                  {formatCount(result.entryCount)} entries ·{" "}
+                  {result.fromCache
+                    ? `cached ${formatAgo(Date.now() - result.scannedAt)} ago`
+                    : `scanned in ${(result.durationMs / 1000).toFixed(1)}s`}
                   {result.skippedCount > 0 && ` · ${formatCount(result.skippedCount)} unreadable`}
                 </p>
               </div>

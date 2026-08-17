@@ -35,6 +35,7 @@ describe("Disk Usage", () => {
     expect(result.path).toBe(root);
     expect(result.parentPath).toBe(tmpdir());
     expect(result.truncated).toBe(false);
+    expect(result.fromCache).toBe(false);
     // big/ (256K), loose.bin (64K), small/ (5B), link (0B, never followed)
     expect(result.entries.map((entry) => entry.name)).toEqual([
       "big",
@@ -52,6 +53,44 @@ describe("Disk Usage", () => {
     expect(result.totalBytes).toBe(childSum);
   });
 
+  it("serves repeat scans from the cache until refresh is requested", async () => {
+    const { harness } = await loadPlugin();
+    const first = scanSchema.parse(await harness.callRpc("scan", { path: root }));
+    const second = scanSchema.parse(await harness.callRpc("scan", { path: root }));
+
+    expect(first.fromCache).toBe(false);
+    expect(second.fromCache).toBe(true);
+    expect(second.scannedAt).toBe(first.scannedAt);
+
+    const refreshed = scanSchema.parse(
+      await harness.callRpc("scan", { path: root, refresh: true }),
+    );
+    expect(refreshed.fromCache).toBe(false);
+    expect(refreshed.scannedAt).toBeGreaterThanOrEqual(first.scannedAt);
+  });
+
+  it("joins concurrent scans of the same path into one walk", async () => {
+    const { harness } = await loadPlugin();
+    const [first, second] = await Promise.all([
+      harness.callRpc("scan", { path: root, refresh: true }),
+      harness.callRpc("scan", { path: root, refresh: true }),
+    ]);
+
+    expect(scanSchema.parse(first).scannedAt).toBe(scanSchema.parse(second).scannedAt);
+  });
+
+  it("publishes realtime progress signals tagged with the scan id", async () => {
+    const { harness } = await loadPlugin();
+    await harness.callRpc("scan", { path: root, refresh: true, scanId: "scan-under-test" });
+
+    const signals = harness.realtimeSignals.filter((signal) => signal.channel === "progress");
+    expect(signals.length).toBeGreaterThanOrEqual(1);
+    expect(signals[0]!.payload).toMatchObject({
+      scanId: "scan-under-test",
+      path: root,
+    });
+  });
+
   it("rejects a path that is not a directory", async () => {
     const { harness } = await loadPlugin();
     await expect(harness.callRpc("scan", { path: join(root, "loose.bin") })).rejects.toThrow(
@@ -59,7 +98,7 @@ describe("Disk Usage", () => {
     );
   });
 
-  it("registers the disk-usage CLI with human and JSON output", async () => {
+  it("registers the disk-usage CLI with human, cached, and JSON output", async () => {
     const { harness } = await loadPlugin();
     expect(harness.registrations.cli?.name).toBe("disk-usage");
 
@@ -69,6 +108,15 @@ describe("Disk Usage", () => {
     expect(human.stdout).toContain("big/");
     expect(human.stdout).not.toContain("small/");
     expect(human.stdout).toContain("smaller entries");
+    expect(human.stdout).not.toContain("cached");
+
+    const cached = await harness.runCli([root]);
+    expect(cached.exitCode).toBe(0);
+    expect(cached.stdout).toContain("cached");
+
+    const refreshed = await harness.runCli([root, "--refresh"]);
+    expect(refreshed.exitCode).toBe(0);
+    expect(refreshed.stdout).not.toContain("cached");
 
     const json = await harness.runCli([root, "--json"]);
     expect(json.exitCode).toBe(0);
