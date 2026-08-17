@@ -4,6 +4,8 @@ See what's taking up disk space on the bb server host, `ncdu`-style: scan a
 directory, get its immediate children sorted by recursive size, and drill down
 until you find the culprit.
 
+<img width="2983" height="1607" alt="bettershot_1787007625230" src="https://github.com/user-attachments/assets/46b2e522-f47c-493a-a992-08ab1c930e05" />
+
 ## What it does
 
 - **Disk Usage panel** — a sidebar panel that scans a directory (default: the
