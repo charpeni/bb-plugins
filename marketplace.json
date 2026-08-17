@@ -2,7 +2,7 @@
   "$schema": "https://getbb.app/schemas/marketplace.schema.json",
   "schemaVersion": 1,
   "name": "charpeni",
-  "displayName": "Charpeni's Plugins",
+  "displayName": "charpeni's Plugins",
   "description": "BB plugins Nicolas Charpentier maintains.",
   "plugins": [
     {
