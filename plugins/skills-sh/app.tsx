@@ -288,8 +288,8 @@ function SkillsPanel() {
         <header className="mb-5 pt-12 md:pt-0">
           <h1 className="text-base font-semibold">Skills.sh</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Install agent skills from skills.sh and keep them in sync with their source, 1:1 with
-            the npx skills CLI.
+            Install agent skills from skills.sh once, globally — every AI agent bb runs picks them
+            up. Kept in sync with their source, 1:1 with the npx skills CLI.
           </p>
           {status ? (
             <code className="mt-2 inline-block max-w-full truncate rounded-md bg-surface-recessed px-2 py-1 text-xs text-muted-foreground">
@@ -412,7 +412,9 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "skills-sh",
     title: "Skills.sh",
-    icon: "Sparkles",
+    // The sidebar prefers the plugin's logo (assets/skills-sh.svg, a sparkles
+    // glyph); this name is only a fallback and must exist in bb's icon set.
+    icon: "Star",
     path: "skills",
     component: SkillsPanel,
   });

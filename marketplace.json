@@ -40,7 +40,7 @@
     {
       "id": "skills-sh",
       "displayName": "Skills.sh",
-      "description": "Install and update agent skills from skills.sh, 1:1 with the npx skills CLI.",
+      "description": "Install agent skills from skills.sh once, globally for every AI agent bb runs — 1:1 with the npx skills CLI, with drift-aware updates.",
       "icon": { "url": "./icons/skills-sh.svg" },
       "tags": ["skills", "agents", "cli"],
       "author": { "name": "Nicolas Charpentier", "github": "charpeni" },

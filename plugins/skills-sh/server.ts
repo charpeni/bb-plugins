@@ -705,7 +705,7 @@ export default function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: "skills",
-    summary: "Install and update agent skills from skills.sh",
+    summary: "Install agent skills from skills.sh globally for every AI agent bb runs",
     commands: [
       {
         name: "add",

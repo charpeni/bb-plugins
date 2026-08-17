@@ -4,8 +4,11 @@ Install and update agent skills from [skills.sh](https://skills.sh) inside
 [bb](https://github.com/get-bb/bb), 1:1 with the
 [`npx skills`](https://github.com/vercel-labs/skills) CLI.
 
-Skills are installed into bb's user skills directory (`<data-dir>/skills`,
-usually `~/.bb/skills`), where bb picks them up for every agent thread. The
+One install works everywhere: skills land in bb's global user skills
+directory (`<data-dir>/skills`, usually `~/.bb/skills`) — the same catalog as
+`bb skill` — so every AI agent bb runs (Claude Code, Codex, OpenCode, …)
+picks them up in every thread, instead of per-tool copies in `.claude/`,
+`.codex/`, and friends. The
 plugin tracks each install with the same folder-hash mechanism as the skills
 CLI — the git tree SHA of the skill folder — so `update` only rewrites a skill
 when its source actually differs.

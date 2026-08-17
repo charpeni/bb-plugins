@@ -2,7 +2,7 @@
   "name": "bb-plugin-skills-sh",
   "version": "0.1.0",
   "private": true,
-  "description": "Install and update agent skills from skills.sh, 1:1 with the npx skills CLI.",
+  "description": "Install agent skills from skills.sh once, globally for every AI agent bb runs — 1:1 with the npx skills CLI, with drift-aware updates.",
   "keywords": [
     "agent-skills",
     "bb-plugin",
@@ -54,7 +54,7 @@
   },
   "bb": {
     "name": "Skills.sh",
-    "description": "Install and update agent skills from skills.sh, 1:1 with the npx skills CLI.",
+    "description": "Install agent skills from skills.sh once, globally for every AI agent bb runs — 1:1 with the npx skills CLI, with drift-aware updates.",
     "branding": {
       "icon": "./assets/skills-sh.svg"
     },
