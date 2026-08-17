@@ -6,6 +6,8 @@ one BB agent thread to fix every CVE in a dependency group.
 
 It does not require or communicate with BB's official GitHub plugin.
 
+<img width="2806" height="1916" alt="bettershot_1787000567680" src="https://github.com/user-attachments/assets/bda5043e-a05f-45e3-9a67-60b8f2860061" />
+
 ## Install
 
 From the marketplace:
