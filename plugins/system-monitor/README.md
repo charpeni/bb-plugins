@@ -16,7 +16,7 @@ bb plugin install system-monitor@charpeni
 Or directly from this repository:
 
 ```sh
-bb plugin install git:https://github.com/charpeni/bb-plugins.git@^0.1.0 --tag-prefix system-monitor/ --plugin system-monitor
+bb plugin install git:https://github.com/charpeni/bb-plugins.git@^0.2.0 --tag-prefix system-monitor/ --plugin system-monitor
 ```
 
 Open **System Monitor** from the app sidebar, or query the same data from the

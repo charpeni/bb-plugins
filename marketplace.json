@@ -40,7 +40,7 @@
     {
       "id": "system-monitor",
       "displayName": "System Monitor",
-      "description": "Live CPU, memory, disk, load, and uptime statistics for the bb server host.",
+      "description": "Live CPU, memory, disk, load, and uptime statistics with usage history trends for the bb server host.",
       "icon": "ChartColumn",
       "tags": ["system", "monitoring", "interface"],
       "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
@@ -48,7 +48,7 @@
         "git": {
           "url": "https://github.com/charpeni/bb-plugins.git",
           "subdir": "plugins/system-monitor",
-          "range": "^0.1.0",
+          "range": "^0.2.0",
           "tagPrefix": "system-monitor/"
         }
       }

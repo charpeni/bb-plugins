@@ -1,8 +1,8 @@
 {
   "name": "bb-plugin-system-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Live CPU, memory, disk, load, and uptime metrics for the bb server host.",
+  "description": "Live CPU, memory, disk, load, and uptime metrics with usage history trends for the bb server host.",
   "keywords": [
     "bb-plugin",
     "system-metrics",
