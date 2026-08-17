@@ -5,6 +5,7 @@
   "plugins": [
     { "name": "dependabot", "source": "./plugins/dependabot" },
     { "name": "disk-usage", "source": "./plugins/disk-usage" },
+    { "name": "skills-sh", "source": "./plugins/skills-sh" },
     { "name": "system-monitor", "source": "./plugins/system-monitor" }
   ]
 }

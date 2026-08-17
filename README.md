@@ -30,6 +30,7 @@ bb plugin install system-monitor@charpeni
 | ---------------------------------------- | ---------------------------------------------------------------------------------- |
 | [Dependabot](plugins/dependabot)         | Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents. |
 | [Disk Usage](plugins/disk-usage)         | See what's taking up disk space on the bb server host, with drill-down.            |
+| [Skills.sh](plugins/skills-sh)           | Install and update agent skills from skills.sh, 1:1 with the npx skills CLI.       |
 | [System Monitor](plugins/system-monitor) | Live CPU, memory, disk, load, and uptime statistics for the bb server host.        |
 
 Each plugin can also be installed directly, without the marketplace:

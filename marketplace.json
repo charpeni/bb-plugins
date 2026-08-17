@@ -38,6 +38,22 @@
       }
     },
     {
+      "id": "skills-sh",
+      "displayName": "Skills.sh",
+      "description": "Install and update agent skills from skills.sh, 1:1 with the npx skills CLI.",
+      "icon": { "url": "./icons/skills-sh.svg" },
+      "tags": ["skills", "agents", "cli"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/skills-sh",
+          "range": "^0.1.0",
+          "tagPrefix": "skills-sh/"
+        }
+      }
+    },
+    {
       "id": "system-monitor",
       "displayName": "System Monitor",
       "description": "Live CPU, memory, disk, load, and uptime statistics with usage history trends for the bb server host.",
