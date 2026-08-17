@@ -29,6 +29,7 @@ bb plugin install system-monitor@charpeni
 | Plugin                                   | Description                                                                        |
 | ---------------------------------------- | ---------------------------------------------------------------------------------- |
 | [Dependabot](plugins/dependabot)         | Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents. |
+| [Disk Usage](plugins/disk-usage)         | See what's taking up disk space on the bb server host, with drill-down.            |
 | [System Monitor](plugins/system-monitor) | Live CPU, memory, disk, load, and uptime statistics for the bb server host.        |
 
 Each plugin can also be installed directly, without the marketplace:

@@ -1,0 +1,63 @@
+{
+  "name": "bb-plugin-disk-usage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "See what's taking up disk space on the bb server host, with drill-down by directory.",
+  "keywords": [
+    "bb-plugin",
+    "disk-usage",
+    "ncdu",
+    "storage"
+  ],
+  "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/disk-usage#readme",
+  "bugs": {
+    "url": "https://github.com/charpeni/bb-plugins/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charpeni/bb-plugins.git",
+    "directory": "plugins/disk-usage"
+  },
+  "files": [
+    "dist",
+    "server.ts",
+    "scan.ts",
+    "app.tsx",
+    "assets",
+    "README.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bb plugin build",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.4.6",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.18",
+    "bb-app": "^0.38.0",
+    "better-sqlite3": "^13.0.3",
+    "cron-parser": "^5.10.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "bb": ">=0.38",
+    "bbPluginSdk": ">=0.4.6"
+  },
+  "bb": {
+    "name": "Disk Usage",
+    "description": "See what's taking up disk space on the bb server host, with drill-down by directory.",
+    "branding": {
+      "icon": "./assets/hard-drive.svg"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  }
+}
