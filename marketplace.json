@@ -22,6 +22,22 @@
       }
     },
     {
+      "id": "disk-usage",
+      "displayName": "Disk Usage",
+      "description": "See what's taking up disk space on the bb server host, with drill-down by directory.",
+      "icon": { "url": "./icons/disk-usage.svg" },
+      "tags": ["system", "storage", "interface"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/disk-usage",
+          "range": "^0.1.0",
+          "tagPrefix": "disk-usage/"
+        }
+      }
+    },
+    {
       "id": "system-monitor",
       "displayName": "System Monitor",
       "description": "Live CPU, memory, disk, load, and uptime statistics for the bb server host.",
