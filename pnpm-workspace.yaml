@@ -1,0 +1,8 @@
+packages:
+  - "plugins/*"
+allowBuilds:
+  '@google/genai': false
+  '@parcel/watcher': true
+  better-sqlite3: true
+  node-pty: true
+  protobufjs: false

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://getbb.app/schemas/marketplace.schema.json",
+  "schemaVersion": 1,
+  "name": "charpeni",
+  "displayName": "Charpeni's Plugins",
+  "description": "BB plugins Nicolas Charpentier maintains.",
+  "plugins": [
+    {
+      "id": "system-monitor",
+      "displayName": "System Monitor",
+      "description": "Live CPU, memory, disk, load, and uptime statistics for the bb server host.",
+      "icon": "ChartColumn",
+      "tags": ["system", "monitoring", "interface"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/system-monitor",
+          "range": "^0.1.0",
+          "tagPrefix": "system-monitor/"
+        }
+      }
+    }
+  ]
+}

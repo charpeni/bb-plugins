@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run validate
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      # bb downloads its plugin build toolchain into <dataDir>/plugins on
+      # first use; cache it so `bb plugin build` stays fast.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bb/plugins/toolchain-*
+          key: bb-toolchain-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            bb-toolchain-${{ runner.os }}-
+      - run: pnpm run build
+
+  # Git installs run `npm install --omit=dev` in the plugin directory with no
+  # workspace context — prove every plugin survives that exact command.
+  npm-install-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          set -euo pipefail
+          for plugin in plugins/*/; do
+            echo "::group::npm install --omit=dev ($plugin)"
+            (cd "$plugin" && npm install --omit=dev --no-audit --no-fund)
+            echo "::endgroup::"
+          done
