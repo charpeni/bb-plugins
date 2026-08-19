@@ -506,9 +506,10 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "skills-sh",
     title: "Skills.sh",
-    // The sidebar prefers the plugin's logo (assets/skills-sh.svg, a sparkles
-    // glyph); this name is only a fallback and must exist in bb's icon set.
-    icon: "Star",
+    // The sidebar prefers the plugin's logo (assets/skills-sh.svg, a book
+    // glyph); this name is only a fallback and must exist in bb's icon set
+    // (which has no Book — FileText is the closest shipped glyph).
+    icon: "FileText",
     path: "skills",
     component: SkillsPanel,
   });
