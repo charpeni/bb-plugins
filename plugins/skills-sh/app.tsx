@@ -266,17 +266,8 @@ function SkillsPanel() {
       setSelectedSkills({});
     });
 
-  const markPreviewInstalled = (names: Set<string>) => {
-    setSourcePreview((prev) =>
-      prev
-        ? {
-            ...prev,
-            skills: prev.skills.map((skill) =>
-              names.has(skill.name) ? { ...skill, installed: true } : skill,
-            ),
-          }
-        : prev,
-    );
+  const clearPreview = () => {
+    setSourcePreview(null);
     setSelectedSkills({});
   };
 
@@ -288,7 +279,7 @@ function SkillsPanel() {
         skills: names,
       });
       setNotice(`Installed ${installed.map((s) => s.installName).join(", ")}`);
-      markPreviewInstalled(new Set(names));
+      clearPreview();
       await refreshStatus();
     });
 
@@ -306,7 +297,7 @@ function SkillsPanel() {
     run("install:source", async () => {
       const { installed } = await rpc.call("install", { source: query.trim() });
       setNotice(`Installed ${installed.map((s) => s.installName).join(", ")}`);
-      markPreviewInstalled(new Set(installed.map((s) => s.name)));
+      clearPreview();
       await refreshStatus();
     });
 
