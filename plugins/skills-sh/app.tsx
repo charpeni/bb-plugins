@@ -137,10 +137,6 @@ function InstalledRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2">
           <p className="truncate text-sm font-medium">{skill.installName}</p>
-          <span className="truncate text-xs text-muted-foreground">
-            {skill.source}
-            {skill.ref ? `#${skill.ref}` : ""}
-          </span>
           {badge ? (
             <span
               className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
@@ -177,6 +173,29 @@ function InstalledRow({
   );
 }
 
+interface InstalledGroup {
+  /** Origin label: owner/repo (plus #ref) when known, else the URL/path. */
+  label: string;
+  /** Repo link for http(s) sources; null for SSH/local origins. */
+  url: string | null;
+  skills: InstalledSkill[];
+}
+
+function groupBySource(skills: InstalledSkill[]): InstalledGroup[] {
+  const groups = new Map<string, InstalledGroup>();
+  for (const skill of skills) {
+    const label = `${skill.source}${skill.ref ? `#${skill.ref}` : ""}`;
+    let group = groups.get(label);
+    if (!group) {
+      const url = skill.sourceUrl.startsWith("http") ? skill.sourceUrl.replace(/\.git$/, "") : null;
+      group = { label, url, skills: [] };
+      groups.set(label, group);
+    }
+    group.skills.push(skill);
+  }
+  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
 function SkillsPanel() {
   const rpc = useRpc<typeof skillsRpcContract>();
   const [status, setStatus] = useState<StatusResult | null>(null);
@@ -191,6 +210,7 @@ function SkillsPanel() {
     () => new Set((status?.skills ?? []).map((skill) => skill.installName)),
     [status],
   );
+  const installedGroups = useMemo(() => groupBySource(status?.skills ?? []), [status]);
   const updatesAvailable = useMemo(
     () => Object.values(checks).filter((c) => c.status === "update-available").length,
     [checks],
@@ -390,18 +410,43 @@ function SkillsPanel() {
             </p>
           ) : null}
 
-          <ul className="mt-3 flex flex-col gap-2">
-            {(status?.skills ?? []).map((skill) => (
-              <InstalledRow
-                key={skill.installName}
-                skill={skill}
-                check={checks[skill.installName]}
-                busy={busy}
-                onUpdate={(name) => void update([name])}
-                onRemove={(name) => void remove(name)}
-              />
+          <div className="mt-3 flex flex-col gap-4">
+            {installedGroups.map((group) => (
+              <div key={group.label}>
+                <div className="flex items-baseline justify-between gap-2 px-1">
+                  {group.url ? (
+                    <a
+                      href={group.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      {group.label}
+                    </a>
+                  ) : (
+                    <p className="truncate text-xs font-medium text-muted-foreground">
+                      {group.label}
+                    </p>
+                  )}
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {group.skills.length} skill(s)
+                  </span>
+                </div>
+                <ul className="mt-1.5 flex flex-col gap-2">
+                  {group.skills.map((skill) => (
+                    <InstalledRow
+                      key={skill.installName}
+                      skill={skill}
+                      check={checks[skill.installName]}
+                      busy={busy}
+                      onUpdate={(name) => void update([name])}
+                      onRemove={(name) => void remove(name)}
+                    />
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </section>
       </main>
     </div>
