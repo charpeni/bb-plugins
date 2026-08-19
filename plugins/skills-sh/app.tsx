@@ -8,6 +8,12 @@ type InstalledSkill = StatusResult["skills"][number];
 type SearchPage = PluginRpcResult<(typeof skillsRpcContract)["search"]>;
 type SearchSkill = SearchPage["skills"][number];
 type CheckEntry = PluginRpcResult<(typeof skillsRpcContract)["check"]>["results"][number];
+type PreviewSkill = PluginRpcResult<(typeof skillsRpcContract)["previewSource"]>["skills"][number];
+
+interface SourcePreview {
+  source: string;
+  skills: PreviewSkill[];
+}
 
 const STATUS_BADGES: Record<CheckEntry["status"], { label: string; className: string }> = {
   "up-to-date": {
@@ -206,6 +212,8 @@ function SkillsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [sourcePreview, setSourcePreview] = useState<SourcePreview | null>(null);
+  const [selectedSkills, setSelectedSkills] = useState<Record<string, boolean>>({});
 
   const installedNames = useMemo(
     () => new Set((status?.skills ?? []).map((skill) => skill.installName)),
@@ -245,7 +253,43 @@ function SkillsPanel() {
 
   const search = (nextQuery: string) =>
     run("search", async () => {
+      setSourcePreview(null);
+      setSelectedSkills({});
       setResults(await rpc.call("search", { query: nextQuery }));
+    });
+
+  const previewFromSource = (source: string) =>
+    run("preview", async () => {
+      setResults(null);
+      const { skills } = await rpc.call("previewSource", { source });
+      setSourcePreview({ source, skills });
+      setSelectedSkills({});
+    });
+
+  const markPreviewInstalled = (names: Set<string>) => {
+    setSourcePreview((prev) =>
+      prev
+        ? {
+            ...prev,
+            skills: prev.skills.map((skill) =>
+              names.has(skill.name) ? { ...skill, installed: true } : skill,
+            ),
+          }
+        : prev,
+    );
+    setSelectedSkills({});
+  };
+
+  const installSelected = (names: string[]) =>
+    run("install:selected", async () => {
+      if (!sourcePreview) return;
+      const { installed } = await rpc.call("install", {
+        source: sourcePreview.source,
+        skills: names,
+      });
+      setNotice(`Installed ${installed.map((s) => s.installName).join(", ")}`);
+      markPreviewInstalled(new Set(names));
+      await refreshStatus();
     });
 
   const installFromRegistry = (skill: SearchSkill) =>
@@ -262,6 +306,7 @@ function SkillsPanel() {
     run("install:source", async () => {
       const { installed } = await rpc.call("install", { source: query.trim() });
       setNotice(`Installed ${installed.map((s) => s.installName).join(", ")}`);
+      markPreviewInstalled(new Set(installed.map((s) => s.name)));
       await refreshStatus();
     });
 
@@ -302,6 +347,12 @@ function SkillsPanel() {
   const trimmedQuery = query.trim();
   const looksLikeSource =
     trimmedQuery.includes("/") && !trimmedQuery.includes(" ") && trimmedQuery.length > 2;
+  const previewSelectable = sourcePreview?.skills.filter((skill) => !skill.installed) ?? [];
+  const selectedNames = previewSelectable
+    .filter((skill) => selectedSkills[skill.name])
+    .map((skill) => skill.name);
+  const allSelected =
+    previewSelectable.length > 0 && selectedNames.length === previewSelectable.length;
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -350,13 +401,89 @@ function SkillsPanel() {
             </Button>
           </form>
           {looksLikeSource ? (
-            <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-surface-recessed p-2 pl-3">
-              <p className="truncate text-xs text-muted-foreground">
-                Install every skill from <code className="text-foreground">{trimmedQuery}</code>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-recessed p-2 pl-3">
+              <p className="min-w-0 truncate text-xs text-muted-foreground">
+                Install skills from <code className="text-foreground">{trimmedQuery}</code>
               </p>
-              <Button tone="primary" onClick={installFromSource} disabled={busy !== null}>
-                {busy === "install:source" ? "Installing…" : "Install from source"}
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  onClick={() => void previewFromSource(trimmedQuery)}
+                  disabled={busy !== null}
+                >
+                  {busy === "preview" ? "Loading…" : "Choose skills…"}
+                </Button>
+                <Button tone="primary" onClick={installFromSource} disabled={busy !== null}>
+                  {busy === "install:source" ? "Installing…" : "Install all"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {sourcePreview ? (
+            <div className="mt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <p className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+                  {sourcePreview.skills.length} skill(s) in {sourcePreview.source}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    onClick={() =>
+                      setSelectedSkills(
+                        allSelected
+                          ? {}
+                          : Object.fromEntries(previewSelectable.map((s) => [s.name, true])),
+                      )
+                    }
+                    disabled={busy !== null || previewSelectable.length === 0}
+                  >
+                    {allSelected ? "Clear selection" : "Select all"}
+                  </Button>
+                  <Button
+                    tone="primary"
+                    onClick={() => void installSelected(selectedNames)}
+                    disabled={busy !== null || selectedNames.length === 0}
+                  >
+                    {busy === "install:selected"
+                      ? "Installing…"
+                      : `Install selected (${selectedNames.length})`}
+                  </Button>
+                </div>
+              </div>
+              <ul className="mt-1.5 flex flex-col gap-2">
+                {sourcePreview.skills.map((skill) => (
+                  <li key={skill.name} className="rounded-lg border bg-card p-3">
+                    <label
+                      className={`flex items-start gap-2.5 ${skill.installed ? "" : "cursor-pointer"}`}
+                    >
+                      {skill.installed ? (
+                        <span className="mt-0.5 shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+                          Installed
+                        </span>
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={selectedSkills[skill.name] === true}
+                          onChange={(event) =>
+                            setSelectedSkills((prev) => ({
+                              ...prev,
+                              [skill.name]: event.target.checked,
+                            }))
+                          }
+                          disabled={busy !== null}
+                          className="mt-1 size-3.5 shrink-0"
+                        />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{skill.name}</span>
+                        {skill.description ? (
+                          <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                            {skill.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
           {results ? (

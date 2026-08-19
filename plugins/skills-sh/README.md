@@ -16,10 +16,11 @@ when its source actually differs.
 ## Panel
 
 The plugin adds a **Skills.sh** panel to bb's sidebar: search the skills.sh
-registry (or paste `owner/repo` / a skills.sh URL to install straight from a
-source), see installed skills with their tracked version, check for upstream
-drift, and update or remove skills — all backed by the same operations as the
-CLI below.
+registry, or paste `owner/repo` / a skills.sh URL to install straight from a
+source — everything at once, or a hand-picked selection via "Choose skills…".
+Installed skills are grouped by origin (collapsible) with their tracked
+version; check for upstream drift, update, or remove them — all backed by the
+same operations as the CLI below.
 
 ## Usage
 
