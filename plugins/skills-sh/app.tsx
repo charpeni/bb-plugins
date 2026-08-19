@@ -205,6 +205,7 @@ function SkillsPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const installedNames = useMemo(
     () => new Set((status?.skills ?? []).map((skill) => skill.installName)),
@@ -411,41 +412,89 @@ function SkillsPanel() {
           ) : null}
 
           <div className="mt-3 flex flex-col gap-4">
-            {installedGroups.map((group) => (
-              <div key={group.label}>
-                <div className="flex items-baseline justify-between gap-2 px-1">
-                  {group.url ? (
-                    <a
-                      href={group.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="truncate text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+            {installedGroups.map((group) => {
+              const isCollapsed = collapsedGroups[group.label] === true;
+              const groupUpdates = group.skills.filter(
+                (skill) => checks[skill.installName]?.status === "update-available",
+              ).length;
+              return (
+                <div key={group.label}>
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <button
+                      type="button"
+                      aria-expanded={!isCollapsed}
+                      onClick={() =>
+                        setCollapsedGroups((prev) => ({
+                          ...prev,
+                          [group.label]: !prev[group.label],
+                        }))
+                      }
+                      className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                     >
-                      {group.label}
-                    </a>
-                  ) : (
-                    <p className="truncate text-xs font-medium text-muted-foreground">
-                      {group.label}
-                    </p>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        className={`size-3 shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M9 18l6-6-6-6"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <span className="truncate">{group.label}</span>
+                    </button>
+                    <span className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
+                      {isCollapsed && groupUpdates > 0 ? (
+                        <span className="font-medium text-attention">{groupUpdates} update(s)</span>
+                      ) : null}
+                      {group.skills.length} skill(s)
+                      {group.url ? (
+                        <a
+                          href={group.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Open ${group.label}`}
+                          className="transition-colors hover:text-foreground"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            className="size-3"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M7 17L17 7M9 7h8v8"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </a>
+                      ) : null}
+                    </span>
+                  </div>
+                  {isCollapsed ? null : (
+                    <ul className="mt-1.5 flex flex-col gap-2">
+                      {group.skills.map((skill) => (
+                        <InstalledRow
+                          key={skill.installName}
+                          skill={skill}
+                          check={checks[skill.installName]}
+                          busy={busy}
+                          onUpdate={(name) => void update([name])}
+                          onRemove={(name) => void remove(name)}
+                        />
+                      ))}
+                    </ul>
                   )}
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {group.skills.length} skill(s)
-                  </span>
                 </div>
-                <ul className="mt-1.5 flex flex-col gap-2">
-                  {group.skills.map((skill) => (
-                    <InstalledRow
-                      key={skill.installName}
-                      skill={skill}
-                      check={checks[skill.installName]}
-                      busy={busy}
-                      onUpdate={(name) => void update([name])}
-                      onRemove={(name) => void remove(name)}
-                    />
-                  ))}
-                </ul>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </main>
