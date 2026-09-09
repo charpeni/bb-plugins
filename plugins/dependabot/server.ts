@@ -274,7 +274,7 @@ export async function fetchDependabotAlerts(
   return parseDependabotAlerts(raw, repo);
 }
 
-export function buildDependabotFixPrompt(group: DependabotGroup): string {
+export function buildDependabotFixPrompt(group: DependabotGroup, customPrompt = ""): string {
   const alertLines = group.alerts.map((alert) => {
     const id = alert.cveId ?? alert.ghsaId;
     const patched =
@@ -287,7 +287,7 @@ export function buildDependabotFixPrompt(group: DependabotGroup): string {
       `  ${alert.url}`
     );
   });
-  return [
+  const prompt = [
     `Fix every open GitHub Dependabot alert for ${group.dependency} (${group.ecosystem}) in ${group.repo}.`,
     "",
     `This dependency has ${group.alerts.length} open alert${group.alerts.length === 1 ? "" : "s"}:`,
@@ -307,6 +307,10 @@ export function buildDependabotFixPrompt(group: DependabotGroup): string {
     "",
     "In the final summary, report: (1) the dependency's resolved version before and after the change, separately per manifest when they differ; (2) why the repository has this dependency, including the direct parent and dependency path when transitive; (3) which alerts the change addresses; and (4) any remaining risk or blocker.",
   ].join("\n");
+  const additionalInstructions = customPrompt.trim();
+  return additionalInstructions.length === 0
+    ? prompt
+    : `${prompt}\n\nAdditional instructions:\n${additionalInstructions}`;
 }
 
 export function validateDependabotCliArgs(argv: string[]): string | null {
@@ -346,6 +350,14 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
       label: "Default BB project",
       description:
         "Project used for fix threads when a repository is not discovered from a BB project.",
+    },
+    customPrompt: {
+      type: "string",
+      label: "Custom prompt",
+      experimental_multiline: true,
+      description:
+        'Additional instructions appended to every "Fix with agent" thread and CLI fix. Leave blank to use only the standard remediation prompt.',
+      default: "",
     },
   });
 
@@ -594,11 +606,12 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
         `No open Dependabot alerts remain for ${dependency} (${ecosystem}) in ${repo}.`,
       );
     }
+    const { customPrompt } = await settings.get();
     const thread = await bb.sdk.threads.spawn({
       projectId: await resolveProjectId(repo),
       environment: { type: "project-default" },
       title: `Fix ${dependency} Dependabot alerts in ${repo}`.slice(0, 120),
-      prompt: buildDependabotFixPrompt(group),
+      prompt: buildDependabotFixPrompt(group, customPrompt),
     });
     return { threadId: thread.id };
   }

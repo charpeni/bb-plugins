@@ -248,6 +248,9 @@ describe("Dependabot plugin dispatch", () => {
       projectId: "proj_widgets",
       environment: { type: "project-default" },
       title: "Fix example-lib Dependabot alerts in acme/widgets",
+      prompt: buildDependabotFixPrompt(
+        parseDependabotAlerts(JSON.stringify(response), "acme/widgets")[0],
+      ),
       origin: "plugin",
       originPluginId: "dependabot",
     });
@@ -257,6 +260,47 @@ describe("Dependabot plugin dispatch", () => {
         ([, args]) => args.includes("--hostname") && args.includes("github.com"),
       ),
     ).toBe(true);
+  });
+
+  it("appends the current custom prompt to button and CLI fixes without a reload", async () => {
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "dependabot",
+      settings: { customPrompt: "Use a dedicated branch.\nOpen a draft PR." },
+      sdk: {
+        projects: { list: async () => [project()] },
+        threads: { spawn: async () => ({ id: "thr_fix" }) },
+      },
+    });
+    await dependabotPlugin(bb);
+    const [group] = parseDependabotAlerts(JSON.stringify(response), "acme/widgets");
+    const standardPrompt = buildDependabotFixPrompt(group);
+
+    await harness.behavior.callRpc("startFix", {
+      repo: "acme/widgets",
+      ecosystem: "npm",
+      dependency: "example-lib",
+    });
+    expect(harness.inspection.sdk.callsTo("threads.spawn")[0]?.[0]).toMatchObject({
+      prompt: `${standardPrompt}\n\nAdditional instructions:\nUse a dedicated branch.\nOpen a draft PR.`,
+    });
+
+    await harness.behavior.setSettings({ customPrompt: "  Include test results.\n" });
+    const result = await harness.behavior.runCli(["fix", "acme/widgets", "npm", "example-lib"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.inspection.sdk.callsTo("threads.spawn")[1]?.[0]).toMatchObject({
+      prompt: `${standardPrompt}\n\nAdditional instructions:\nInclude test results.`,
+    });
+
+    await harness.behavior.setSettings({ customPrompt: " \n\t " });
+    await harness.behavior.callRpc("startFix", {
+      repo: "acme/widgets",
+      ecosystem: "npm",
+      dependency: "example-lib",
+    });
+    expect(harness.inspection.sdk.callsTo("threads.spawn")[2]?.[0]).toMatchObject({
+      prompt: standardPrompt,
+    });
+    await harness.lifecycle.dispose();
   });
 
   it("rejects untracked repositories before querying their alerts", async () => {

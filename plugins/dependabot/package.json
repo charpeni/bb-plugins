@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-dependabot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents.",
   "keywords": [
@@ -37,7 +37,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.4.6",
+    "@get-bb/plugin-sdk": "0.4.47",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.18",
@@ -49,7 +49,7 @@
   },
   "engines": {
     "bb": ">=0.38",
-    "bbPluginSdk": ">=0.4.6"
+    "bbPluginSdk": ">=0.4.47"
   },
   "bb": {
     "name": "Dependabot",

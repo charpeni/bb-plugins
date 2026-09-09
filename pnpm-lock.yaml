@@ -25,8 +25,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@get-bb/plugin-sdk':
-        specifier: 0.4.6
-        version: 0.4.6(@types/better-sqlite3@7.6.13)(@types/react@19.2.18)(better-sqlite3@13.0.3)(cron-parser@5.10.0)(hono@4.13.2)(zod@4.4.3)
+        specifier: 0.4.47
+        version: 0.4.47(@types/better-sqlite3@7.6.13)(@types/react@19.2.18)(better-sqlite3@13.0.3)(cron-parser@5.10.0)(hono@4.13.2)(zod@4.4.3)
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
@@ -295,6 +295,38 @@ packages:
   '@earendil-works/pi-tui@0.84.0':
     resolution: {integrity: sha512-nbs0FeZJ5rWDD6VpKfXXmYbEHnHqb40V9glE2l9f8ftoWpsP8nw0WcXK8jOjfRsDPnT9dJHy3dItOHdn/AFGjA==}
     engines: {node: '>=22.19.0'}
+
+  '@get-bb/plugin-sdk@0.4.47':
+    resolution: {integrity: sha512-qGUaLAzAZM/BCAAK8iTetlSwzRplw/BtMXqamgjVD2nKFKucOPAWzQOp/CtufS3t/1p7cfQ09rZwUYtnXtKFIQ==}
+    peerDependencies:
+      '@testing-library/react': ^16.3.2
+      '@types/better-sqlite3': ^7.6.12
+      '@types/react': ^19.0.0
+      better-sqlite3: '>=12'
+      cron-parser: ^5.5.0
+      hono: ^4.11.9
+      react: ^19.0.0
+      react-dom: ^19.0.0
+      zod: ^4.3.6
+    peerDependenciesMeta:
+      '@testing-library/react':
+        optional: true
+      '@types/better-sqlite3':
+        optional: true
+      '@types/react':
+        optional: true
+      better-sqlite3:
+        optional: true
+      cron-parser:
+        optional: true
+      hono:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      zod:
+        optional: true
 
   '@get-bb/plugin-sdk@0.4.6':
     resolution: {integrity: sha512-6r11EujV1g7cFMH075FyKUbRZgEmXieiZmJP3FJXBT6vdomOR2mcgakDOXg6wCHSrqgQ6r9XSVCobjNjZ1q1Vw==}
@@ -2242,6 +2274,15 @@ snapshots:
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
+
+  '@get-bb/plugin-sdk@0.4.47(@types/better-sqlite3@7.6.13)(@types/react@19.2.18)(better-sqlite3@13.0.3)(cron-parser@5.10.0)(hono@4.13.2)(zod@4.4.3)':
+    optionalDependencies:
+      '@types/better-sqlite3': 7.6.13
+      '@types/react': 19.2.18
+      better-sqlite3: 13.0.3
+      cron-parser: 5.10.0
+      hono: 4.13.2
+      zod: 4.4.3
 
   '@get-bb/plugin-sdk@0.4.6(@types/better-sqlite3@7.6.13)(@types/react@19.2.18)(better-sqlite3@13.0.3)(cron-parser@5.10.0)(hono@4.13.2)(zod@4.4.3)':
     optionalDependencies:

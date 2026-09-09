@@ -10,6 +10,8 @@ It does not require or communicate with BB's official GitHub plugin.
 
 ## Install
 
+Requires a BB version with Plugin SDK 0.4.47 or newer for the custom prompt textarea.
+
 From the marketplace:
 
 ```sh
@@ -71,6 +73,18 @@ agent** re-fetches the group, then starts one project-scoped thread with every
 CVE, vulnerable range, and first patched version in its prompt. The prompt asks
 the agent to update manifests and lockfiles, run repository checks, and never
 dismiss an alert instead of fixing the code.
+
+Use the **Custom prompt** textarea (`customPrompt`) in the Dependabot plugin settings to
+append your own instructions to the standard remediation prompt and alert
+details. For example:
+
+```sh
+bb plugin config dependabot set customPrompt "Open a draft PR and include the test results in its description."
+```
+
+The setting applies to both **Fix with agent** and `bb dependabot fix`. Changes
+take effect on the next fix without reloading the plugin. Leave it blank to use
+only the standard prompt.
 
 Alert groups are cached per repository in the plugin's SQLite database for five
 minutes. Concurrent requests share one GitHub fetch, a background service
