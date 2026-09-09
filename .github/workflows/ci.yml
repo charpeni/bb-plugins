@@ -44,6 +44,9 @@ jobs:
           # This job runs plain npm on purpose; stop setup-node from probing
           # for pnpm because of the root packageManager field.
           package-manager-cache: false
+      # npm 10 crashes in Arborist's peer resolver on the current dependency
+      # graph, even with --omit=dev. Keep the standalone install check on npm 11.
+      - run: npm install --global npm@11.17.0
       - run: |
           set -euo pipefail
           for plugin in plugins/*/; do
