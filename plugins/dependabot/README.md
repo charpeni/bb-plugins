@@ -86,6 +86,13 @@ The setting applies to both **Fix with agent** and `bb dependabot fix`. Changes
 take effect on the next fix without reloading the plugin. Leave it blank to use
 only the standard prompt.
 
+Each dependency group remembers its fix thread across panel reloads and BB
+restarts. While that thread is unarchived, the card shows its status and an
+**Open fix thread** button. Repeated or simultaneous fix requests reuse the
+same thread. Idle and failed threads stay linked so you can review or resume
+them; archive or delete the thread to start a new fix. Links are recorded for
+fixes started after installing this version.
+
 Alert groups are cached per repository in the plugin's SQLite database for five
 minutes. Concurrent requests share one GitHub fetch, a background service
 refreshes the cache every five minutes, and failed refreshes retain stale data

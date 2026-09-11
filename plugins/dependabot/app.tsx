@@ -3,17 +3,18 @@ import {
   definePluginApp,
   useBbNavigate,
   useRealtime,
+  useRealtimeConnectionState,
   useRpc,
   type PluginNavPanelProps,
 } from "@get-bb/plugin-sdk/app";
-import type { DependabotGroup, dependabotRpcContract } from "./server.js";
+import type { DependabotGroup, DependabotGroupWithFix, dependabotRpcContract } from "./server.js";
 import { buildDependabotReport } from "./reports.js";
 
 type LoadState =
   | { status: "loading" }
   | {
       status: "ready";
-      groups: DependabotGroup[];
+      groups: DependabotGroupWithFix[];
       errors: Array<{ repo: string; message: string }>;
     }
   | { status: "error"; message: string };
@@ -221,7 +222,7 @@ function ExposureReport({ groups }: { groups: DependabotGroup[] }) {
   );
 }
 
-function AlertGroupCard({ group }: { group: DependabotGroup }) {
+function AlertGroupCard({ group }: { group: DependabotGroupWithFix }) {
   const rpc = useRpc<typeof dependabotRpcContract>();
   const navigate = useBbNavigate();
   const [starting, setStarting] = useState(false);
@@ -239,6 +240,7 @@ function AlertGroupCard({ group }: { group: DependabotGroup }) {
       navigate.toThread(result.threadId);
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setStarting(false);
     }
   }
@@ -265,14 +267,38 @@ function AlertGroupCard({ group }: { group: DependabotGroup }) {
             {group.alerts.length === 1 ? "" : "s"} · {group.manifests.join(", ")}
           </p>
         </div>
-        <button
-          type="button"
-          disabled={starting}
-          onClick={() => void startFix()}
-          className="h-9 shrink-0 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {starting ? "Starting agent..." : "Fix with agent"}
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          {group.fixThread !== null ? (
+            <span className="text-xs text-muted-foreground" role="status">
+              {
+                {
+                  pending: "Fix queued",
+                  starting: "Agent starting",
+                  active: "Agent working",
+                  idle: "Thread idle",
+                  error: "Thread needs attention",
+                  stopping: "Agent stopping",
+                }[group.fixThread.status]
+              }
+            </span>
+          ) : null}
+          <button
+            type="button"
+            disabled={starting}
+            onClick={() =>
+              group.fixThread === null
+                ? void startFix()
+                : navigate.toThread(group.fixThread.threadId)
+            }
+            className="h-9 shrink-0 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {starting
+              ? "Starting agent..."
+              : group.fixThread === null
+                ? "Fix with agent"
+                : "Open fix thread"}
+          </button>
+        </div>
       </header>
 
       <div className="divide-y divide-border">
@@ -322,6 +348,7 @@ function AlertGroupCard({ group }: { group: DependabotGroup }) {
 
 function DependabotPanel(_props: PluginNavPanelProps) {
   const rpc = useRpc<typeof dependabotRpcContract>();
+  const connectionState = useRealtimeConnectionState();
   const [repos, setRepos] = useState<string[]>([]);
   const [selectedRepo, setSelectedRepo] = useState(() => readLocalFilter(REPOSITORY_FILTER_KEY));
   const [query, setQuery] = useState(() => readLocalFilter(SEARCH_FILTER_KEY));
@@ -334,6 +361,11 @@ function DependabotPanel(_props: PluginNavPanelProps) {
   useRealtime("alerts-changed", () => {
     setRefreshKey((current) => current + 1);
   });
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRefreshKey((current) => current + 1), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -360,7 +392,7 @@ function DependabotPanel(_props: PluginNavPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoadState({ status: "loading" });
+    setLoadState((current) => (current.status === "ready" ? current : { status: "loading" }));
     void rpc.call("listAlerts", selectedRepo === "" ? {} : { repo: selectedRepo }).then(
       (result) => {
         if (!cancelled) {
@@ -380,7 +412,7 @@ function DependabotPanel(_props: PluginNavPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [rpc, selectedRepo, refreshKey]);
+  }, [rpc, selectedRepo, refreshKey, connectionState]);
 
   async function refresh() {
     setRefreshing(true);

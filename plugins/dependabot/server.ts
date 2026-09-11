@@ -52,9 +52,17 @@ const repoInfoSchema = z
   })
   .strict();
 
+const fixThreadSchema = z
+  .object({
+    threadId: z.string().min(1),
+    status: z.enum(["pending", "starting", "active", "idle", "error", "stopping"]),
+  })
+  .strict();
+const groupWithFixSchema = groupSchema.extend({ fixThread: fixThreadSchema.nullable() });
+
 const alertListResultSchema = z
   .object({
-    groups: z.array(groupSchema),
+    groups: z.array(groupWithFixSchema),
     errors: z.array(z.object({ repo: repoNameSchema, message: z.string() }).strict()),
   })
   .strict();
@@ -117,6 +125,8 @@ const rawAlertSchema = z.object({
 type RawAlert = z.infer<typeof rawAlertSchema>;
 export type DependabotAlert = z.infer<typeof alertSchema>;
 export type DependabotGroup = z.infer<typeof groupSchema>;
+export type DependabotGroupWithFix = z.infer<typeof groupWithFixSchema>;
+type FixThread = z.infer<typeof fixThreadSchema>;
 
 interface RepoInfo {
   repo: string;
@@ -368,6 +378,13 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
        groups_json TEXT NOT NULL,
        synced_at TEXT NOT NULL
      )`,
+    `CREATE TABLE IF NOT EXISTS fix_threads (
+       repo TEXT NOT NULL,
+       ecosystem TEXT NOT NULL,
+       dependency TEXT NOT NULL,
+       thread_id TEXT NOT NULL UNIQUE,
+       PRIMARY KEY (repo, ecosystem, dependency)
+     )`,
   ]);
   const cacheRowSchema = z.object({
     groups_json: z.string(),
@@ -385,6 +402,66 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
   let authCheck: Promise<void> | null = null;
   let repoCache: { repos: RepoInfo[]; fetchedAt: number } | null = null;
   const refreshes = new Map<string, Promise<CachedAlerts>>();
+  const startingFixes = new Map<string, Promise<{ threadId: string }>>();
+
+  function readFixThreadId(repo: string, ecosystem: string, dependency: string): string | null {
+    const row = z
+      .object({ thread_id: z.string() })
+      .safeParse(
+        db
+          .prepare(
+            "SELECT thread_id FROM fix_threads WHERE repo = ? AND ecosystem = ? AND dependency = ?",
+          )
+          .get(repo.toLowerCase(), ecosystem.toLowerCase(), dependency),
+      );
+    return row.success ? row.data.thread_id : null;
+  }
+
+  async function openFixThreads(): Promise<Map<string, FixThread>> {
+    const threads = new Map<string, FixThread>();
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const page = await bb.sdk.threads.list({
+        originPluginId: bb.pluginId,
+        archived: false,
+        includeHidden: true,
+        limit,
+        offset,
+      });
+      for (const thread of page) {
+        if (thread.archivedAt === null && thread.deletedAt === null) {
+          threads.set(thread.id, { threadId: thread.id, status: thread.status });
+        }
+      }
+      if (page.length < limit) return threads;
+    }
+  }
+
+  async function attachFixThreads(groups: DependabotGroup[]): Promise<DependabotGroupWithFix[]> {
+    const ids = groups.map((group) =>
+      readFixThreadId(group.repo, group.ecosystem, group.dependency),
+    );
+    const threads = ids.some((id) => id !== null)
+      ? await openFixThreads()
+      : new Map<string, FixThread>();
+    return groups.map((group, index) => ({
+      ...group,
+      fixThread: threads.get(ids[index] ?? "") ?? null,
+    }));
+  }
+
+  for (const event of [
+    "thread.active",
+    "thread.idle",
+    "thread.failed",
+    "thread.archived",
+    "thread.deleted",
+  ] as const) {
+    bb.events.on(event, ({ thread }) => {
+      const linked = db.prepare("SELECT 1 FROM fix_threads WHERE thread_id = ?").get(thread.id);
+      if (linked !== undefined) bb.realtime.publish("alerts-changed", {});
+    });
+  }
 
   async function resolveGh(): Promise<string> {
     if (ghPath !== null) return ghPath;
@@ -585,7 +662,20 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
     return { groups, errors };
   }
 
-  async function startFix(
+  function startFix(
+    repo: string,
+    ecosystem: string,
+    dependency: string,
+  ): Promise<{ threadId: string }> {
+    const key = JSON.stringify([repo.toLowerCase(), ecosystem.toLowerCase(), dependency]);
+    const running = startingFixes.get(key);
+    if (running !== undefined) return running;
+    const fix = createFix(repo, ecosystem, dependency).finally(() => startingFixes.delete(key));
+    startingFixes.set(key, fix);
+    return fix;
+  }
+
+  async function createFix(
     repo: string,
     ecosystem: string,
     dependency: string,
@@ -593,6 +683,10 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
     const tracked = (await discoverRepos()).some((entry) => entry.repo === repo);
     if (!tracked) {
       throw new Error(`${repo} is not tracked. Add it to a BB project or the extraRepos setting.`);
+    }
+    const existingId = readFixThreadId(repo, ecosystem, dependency);
+    if (existingId !== null && (await openFixThreads()).has(existingId)) {
+      return { threadId: existingId };
     }
     await checkAuth(true);
     const { groups } = await refreshRepo(repo);
@@ -613,6 +707,15 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
       title: `Fix ${dependency} Dependabot alerts in ${repo}`.slice(0, 120),
       prompt: buildDependabotFixPrompt(group, customPrompt),
     });
+    db.prepare(`INSERT INTO fix_threads (repo, ecosystem, dependency, thread_id)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(repo, ecosystem, dependency) DO UPDATE SET thread_id = excluded.thread_id`).run(
+      repo.toLowerCase(),
+      ecosystem.toLowerCase(),
+      dependency,
+      thread.id,
+    );
+    bb.realtime.publish("alerts-changed", {});
     return { threadId: thread.id };
   }
 
@@ -666,10 +769,12 @@ export default async function dependabotPlugin(bb: BbPluginApi) {
       };
     },
     async listAlerts({ repo }) {
-      return await listAlerts(repo);
+      const result = await listAlerts(repo);
+      return { ...result, groups: await attachFixThreads(result.groups) };
     },
     async refreshAlerts({ repo }) {
-      return await listAlerts(repo, true);
+      const result = await listAlerts(repo, true);
+      return { ...result, groups: await attachFixThreads(result.groups) };
     },
     async startFix({ repo, ecosystem, dependency }) {
       return await startFix(repo, ecosystem, dependency);

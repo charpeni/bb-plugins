@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import {
   buildDependabotFixPrompt,
   default as dependabotPlugin,
@@ -88,6 +88,33 @@ function project(gitRemoteUrl = "git@github.com:acme/widgets.git") {
     sources: [],
   };
 }
+
+function fixThread(overrides: Parameters<typeof makeThreadResponse>[0] = {}) {
+  return {
+    ...makeThreadResponse({
+      id: "thr_fix",
+      originPluginId: "dependabot",
+      status: "active",
+      ...overrides,
+    }),
+    activity: {
+      activeBackgroundAgentCount: 0,
+      activeBackgroundCommandCount: 0,
+      activeGoalCount: 0,
+      activePlanModeCount: 0,
+      activeWorkflowCount: 0,
+    },
+    environmentBranchName: null,
+    environmentHostId: null,
+    environmentName: null,
+    environmentWorkspaceDisplayKind: "other" as const,
+    hasPendingInteraction: false,
+    pinSortKey: null,
+    queuedWork: "none" as const,
+  };
+}
+
+const fixInput = { repo: "acme/widgets", ecosystem: "npm", dependency: "example-lib" };
 
 beforeEach(() => {
   execFileMock.mockReset();
@@ -268,7 +295,8 @@ describe("Dependabot plugin dispatch", () => {
       settings: { customPrompt: "Use a dedicated branch.\nOpen a draft PR." },
       sdk: {
         projects: { list: async () => [project()] },
-        threads: { spawn: async () => ({ id: "thr_fix" }) },
+        // Previous fixes have been archived before starting each new fix.
+        threads: { spawn: async () => ({ id: "thr_fix" }), list: async () => [] },
       },
     });
     await dependabotPlugin(bb);
@@ -340,5 +368,162 @@ describe("Dependabot plugin dispatch", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain("acme/widgets");
     expect(result.stderr).toContain("acme/other\tERROR");
+  });
+});
+
+describe("Dependabot linked fix threads", () => {
+  it("shares concurrent button and CLI requests and persists the link across reloads", async () => {
+    const thread = fixThread();
+    const spawn = vi.fn(async () => thread);
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "dependabot",
+      sdk: {
+        projects: { list: async () => [project()] },
+        threads: { spawn, list: async () => [thread] },
+      },
+    });
+    await dependabotPlugin(bb);
+    await Promise.all([
+      harness.behavior.callRpc("startFix", fixInput),
+      harness.behavior.callRpc("startFix", { ...fixInput, ecosystem: "NPM" }),
+      harness.behavior.runCli(["fix", "acme/widgets", "npm", "example-lib"]),
+    ]);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(await harness.behavior.callRpc("listAlerts", {})).toMatchObject({
+      groups: [{ fixThread: { threadId: thread.id, status: "active" } }],
+    });
+
+    const reloaded = await harness.lifecycle.reload(dependabotPlugin);
+    expect(await reloaded.harness.behavior.callRpc("listAlerts", {})).toMatchObject({
+      groups: [{ fixThread: { threadId: thread.id, status: "active" } }],
+    });
+    expect(await reloaded.harness.behavior.callRpc("startFix", fixInput)).toEqual({
+      threadId: thread.id,
+    });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    await reloaded.harness.lifecycle.dispose();
+  });
+
+  it("shows current idle and failed states and notifies panels without losing the link", async () => {
+    let thread = fixThread();
+    const spawn = vi.fn(async () => thread);
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "dependabot",
+      sdk: {
+        projects: { list: async () => [project()] },
+        threads: { spawn, list: async () => [thread] },
+      },
+    });
+    await dependabotPlugin(bb);
+    await harness.behavior.callRpc("startFix", fixInput);
+    for (const status of ["idle", "error", "active"] as const) {
+      thread = fixThread({ status });
+      const signalsBefore = harness.inspection.realtimeSignals.length;
+      if (status === "idle")
+        await harness.behavior.emitThreadEvent("thread.idle", { thread, lastAssistantText: null });
+      else if (status === "error")
+        await harness.behavior.emitThreadEvent("thread.failed", { thread, error: "Test failure" });
+      else await harness.behavior.emitThreadEvent("thread.active", { thread });
+      expect(harness.inspection.realtimeSignals.length).toBe(signalsBefore + 1);
+      expect(await harness.behavior.callRpc("listAlerts", {})).toMatchObject({
+        groups: [{ fixThread: { threadId: thread.id, status } }],
+      });
+      expect(await harness.behavior.callRpc("startFix", fixInput)).toEqual({ threadId: thread.id });
+    }
+    expect(spawn).toHaveBeenCalledTimes(1);
+    await harness.lifecycle.dispose();
+  });
+
+  it.each(["archived", "deleted", "missing"] as const)(
+    "allows a new fix after the linked thread is %s",
+    async (state) => {
+      let threads = [fixThread()];
+      const spawn = vi.fn(async () => fixThread({ id: `thr_fix_${spawn.mock.calls.length}` }));
+      const { bb, harness } = createFakePluginHost({
+        pluginId: "dependabot",
+        sdk: {
+          projects: { list: async () => [project()] },
+          threads: { spawn, list: async () => threads },
+        },
+      });
+      await dependabotPlugin(bb);
+      const first = (await harness.behavior.callRpc("startFix", fixInput)) as { threadId: string };
+      threads =
+        state === "missing"
+          ? []
+          : [
+              fixThread({
+                id: first.threadId,
+                archivedAt: state === "archived" ? 1 : null,
+                deletedAt: state === "deleted" ? 1 : null,
+              }),
+            ];
+      expect(await harness.behavior.callRpc("listAlerts", {})).toMatchObject({
+        groups: [{ fixThread: null }],
+      });
+      const next = (await harness.behavior.callRpc("startFix", fixInput)) as { threadId: string };
+      expect(next.threadId).not.toBe(first.threadId);
+      expect(spawn).toHaveBeenCalledTimes(2);
+      await harness.lifecycle.dispose();
+    },
+  );
+
+  it("releases a failed start so it can be retried", async () => {
+    const spawn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Spawn failed"))
+      .mockResolvedValueOnce(fixThread());
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "dependabot",
+      sdk: { projects: { list: async () => [project()] }, threads: { spawn } },
+    });
+    await dependabotPlugin(bb);
+    await expect(harness.behavior.callRpc("startFix", fixInput)).rejects.toThrow("Spawn failed");
+    expect(await harness.behavior.callRpc("listAlerts", {})).toMatchObject({
+      groups: [{ fixThread: null }],
+    });
+    expect(await harness.behavior.callRpc("startFix", fixInput)).toEqual({ threadId: "thr_fix" });
+    await harness.lifecycle.dispose();
+  });
+
+  it("does not spawn a duplicate when reading thread status fails", async () => {
+    const spawn = vi.fn(async () => fixThread());
+    const list = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Server unavailable"))
+      .mockResolvedValue([fixThread()]);
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "dependabot",
+      sdk: { projects: { list: async () => [project()] }, threads: { spawn, list } },
+    });
+    await dependabotPlugin(bb);
+    await harness.behavior.callRpc("startFix", fixInput);
+    await expect(harness.behavior.callRpc("startFix", fixInput)).rejects.toThrow(
+      "Server unavailable",
+    );
+    expect(await harness.behavior.callRpc("startFix", fixInput)).toEqual({ threadId: "thr_fix" });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    await harness.lifecycle.dispose();
+  });
+
+  it("finds a linked thread beyond the first page", async () => {
+    const spawn = vi.fn(async () => fixThread());
+    const list = vi.fn(async ({ offset = 0 }) =>
+      offset === 0
+        ? Array.from({ length: 100 }, (_, index) => fixThread({ id: `thr_other_${index}` }))
+        : [fixThread()],
+    );
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "dependabot",
+      sdk: { projects: { list: async () => [project()] }, threads: { spawn, list } },
+    });
+    await dependabotPlugin(bb);
+    await harness.behavior.callRpc("startFix", fixInput);
+    expect(await harness.behavior.callRpc("startFix", fixInput)).toEqual({ threadId: "thr_fix" });
+    expect(list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 100, originPluginId: "dependabot", archived: false }),
+    );
+    expect(spawn).toHaveBeenCalledTimes(1);
+    await harness.lifecycle.dispose();
   });
 });
