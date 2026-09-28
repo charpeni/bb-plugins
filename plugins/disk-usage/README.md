@@ -13,6 +13,11 @@ until you find the culprit.
   breadcrumbs, drill-down by click, and a free-form path input. While a scan
   runs, a live progress card streams entries visited, bytes so far, and the
   directory currently being walked.
+- **Treemap view** — toggle between the list and a squarified treemap where
+  each tile's area is its share of the directory. Directory tiles drill in on
+  click, hovering (or focusing) a tile shows its size and share, and the
+  entries past the 100-entry list cap are folded into one "smaller entries"
+  tile so the areas still add up to the total. The chosen view is remembered.
 - **Per-path cache** — the last result for each path is kept in memory, so
   drilling back up (or reopening the panel) is instant; the header shows the
   snapshot's age and **Rescan** forces a fresh walk. Concurrent requests for

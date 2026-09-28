@@ -10,5 +10,13 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["app.tsx", "server.ts", "scan.ts", "server.test.ts", "vitest.config.ts"]
+  "include": [
+    "app.tsx",
+    "server.ts",
+    "scan.ts",
+    "treemap.ts",
+    "server.test.ts",
+    "treemap.test.ts",
+    "vitest.config.ts"
+  ]
 }

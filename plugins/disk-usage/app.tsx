@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
+import { squarify } from "./treemap.js";
 
 type ScanResult = PluginRpcResult<(typeof rpcContract)["scan"]>;
 type ScanEntry = ScanResult["entries"][number];
@@ -14,6 +15,37 @@ interface ScanProgress {
   skippedCount: number;
   currentPath: string;
   elapsedMs: number;
+}
+
+type ViewMode = "list" | "treemap";
+
+const VIEW_MODES: { id: ViewMode; label: string }[] = [
+  { id: "list", label: "List" },
+  { id: "treemap", label: "Treemap" },
+];
+
+const VIEW_STORAGE_KEY = "disk-usage.view";
+
+// Tiles are inset by half the gap so neighbours sit GAP px apart.
+const TILE_GAP = 2;
+const TOOLTIP_OFFSET = 12;
+
+function loadStoredView(): ViewMode {
+  try {
+    const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    if (stored === "list" || stored === "treemap") return stored;
+  } catch {
+    // Storage can be unavailable (private browsing, blocked cookies); fall through.
+  }
+  return "list";
+}
+
+function storeView(view: ViewMode): void {
+  try {
+    window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+  } catch {
+    // Best effort only.
+  }
 }
 
 function isScanProgress(payload: unknown): payload is ScanProgress {
@@ -140,6 +172,252 @@ function EntryRow({
   );
 }
 
+function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (next: ViewMode) => void }) {
+  return (
+    <div
+      role="group"
+      aria-label="View"
+      className="flex shrink-0 items-center gap-0.5 rounded-lg border bg-surface-recessed p-0.5"
+    >
+      {VIEW_MODES.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          aria-pressed={option.id === value}
+          onClick={() => onChange(option.id)}
+          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+            option.id === value
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// "rest" stands in for the entries the server omitted past its return cap, so
+// tile areas still add up to the directory total.
+type TreemapTile =
+  | { key: string; kind: "entry"; entry: ScanEntry; bytes: number }
+  | { key: string; kind: "rest"; count: number; bytes: number };
+
+const TILE_TONES: Record<ScanEntry["kind"] | "rest", string> = {
+  directory:
+    "border-file-accent/35 bg-file-accent/15 hover:bg-file-accent/25 focus-visible:bg-file-accent/25 cursor-pointer",
+  file: "border-border bg-muted hover:bg-state-hover focus-visible:bg-state-hover",
+  other: "border-border bg-muted hover:bg-state-hover focus-visible:bg-state-hover",
+  rest: "border-dashed border-border bg-surface-recessed",
+};
+
+function tileName(tile: TreemapTile): string {
+  if (tile.kind === "rest") return `${formatCount(tile.count)} smaller entries`;
+  return tile.entry.kind === "directory" ? `${tile.entry.name}/` : tile.entry.name;
+}
+
+function tileDetail(tile: TreemapTile): string | null {
+  if (tile.kind === "rest") return "Not listed individually";
+  if (tile.entry.kind === "directory") return `${formatCount(tile.entry.entryCount)} entries`;
+  if (tile.entry.kind === "other") return "Special file";
+  return null;
+}
+
+function TreemapView({ result, onOpen }: { result: ScanResult; onOpen: (name: string) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [hover, setHover] = useState<{ key: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([observed]) => {
+      if (!observed) return;
+      setSize({ width: observed.contentRect.width, height: observed.contentRect.height });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => setHover(null), [result]);
+
+  const tiles = useMemo(() => {
+    const items: { value: number; data: TreemapTile }[] = result.entries.map((entry) => ({
+      value: entry.bytes,
+      data: { key: `entry:${entry.name}`, kind: "entry", entry, bytes: entry.bytes },
+    }));
+    const listedBytes = result.entries.reduce((sum, entry) => sum + entry.bytes, 0);
+    const restBytes = result.totalBytes - listedBytes;
+    if (result.omittedEntryCount > 0 && restBytes > 0) {
+      items.push({
+        value: restBytes,
+        data: { key: "rest", kind: "rest", count: result.omittedEntryCount, bytes: restBytes },
+      });
+    }
+    return squarify(items, size.width, size.height);
+  }, [result, size]);
+
+  const emptyCount = result.entries.filter((entry) => entry.bytes === 0).length;
+  const hovered = hover ? tiles.find((tile) => tile.data.key === hover.key) : undefined;
+  const hasRest = tiles.some((tile) => tile.data.kind === "rest");
+
+  const trackPointer = (key: string, clientX: number, clientY: number) => {
+    const bounds = containerRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+    setHover({ key, x: clientX - bounds.left, y: clientY - bounds.top });
+  };
+
+  return (
+    <div className="mt-3">
+      <div className="rounded-xl border bg-card p-1">
+        <div
+          ref={containerRef}
+          role="group"
+          aria-label={`Treemap of ${result.path}`}
+          onPointerLeave={() => setHover(null)}
+          className="relative h-[min(60vh,32rem)] min-h-64 overflow-hidden"
+        >
+          {tiles.map(({ x, y, width, height, data: tile }) => {
+            const tileWidth = Math.max(0, width - TILE_GAP);
+            const tileHeight = Math.max(0, height - TILE_GAP);
+            const showName = tileWidth >= 56 && tileHeight >= 24;
+            const showSize = showName && tileHeight >= 42;
+            const share = result.totalBytes > 0 ? (tile.bytes / result.totalBytes) * 100 : 0;
+            const label = `${tileName(tile)}, ${formatBytes(tile.bytes)}, ${share.toFixed(1)}%`;
+            const tone = TILE_TONES[tile.kind === "rest" ? "rest" : tile.entry.kind];
+            const isDirectory = tile.kind === "entry" && tile.entry.kind === "directory";
+            const className = `absolute flex flex-col justify-start overflow-hidden rounded-[4px] border px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${tone}`;
+            const style = {
+              left: x + TILE_GAP / 2,
+              top: y + TILE_GAP / 2,
+              width: tileWidth,
+              height: tileHeight,
+            };
+            const content = showName && (
+              <>
+                <span className="block truncate text-xs font-medium">{tileName(tile)}</span>
+                {showSize && (
+                  <span className="block truncate text-xs tabular-nums text-muted-foreground">
+                    {formatBytes(tile.bytes)}
+                  </span>
+                )}
+              </>
+            );
+            const handlers = {
+              onPointerMove: (event: PointerEvent) =>
+                trackPointer(tile.key, event.clientX, event.clientY),
+              onFocus: () => setHover({ key: tile.key, x: x + width / 2, y: y + height / 2 }),
+              onBlur: () => setHover(null),
+            };
+
+            return isDirectory ? (
+              <button
+                key={tile.key}
+                type="button"
+                aria-label={`${label}. Open`}
+                onClick={() => onOpen(tile.entry.name)}
+                className={className}
+                style={style}
+                {...handlers}
+              >
+                {content}
+              </button>
+            ) : (
+              <div
+                key={tile.key}
+                role="img"
+                tabIndex={0}
+                aria-label={label}
+                className={className}
+                style={style}
+                {...handlers}
+              >
+                {content}
+              </div>
+            );
+          })}
+
+          {tiles.length === 0 && size.width > 0 && (
+            <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Nothing here takes up disk space.
+            </p>
+          )}
+
+          {hover && hovered && (
+            <TreemapTooltip
+              tile={hovered.data}
+              totalBytes={result.totalBytes}
+              x={hover.x}
+              y={hover.y}
+              flipX={hover.x > size.width / 2}
+              flipY={hover.y > size.height / 2}
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-[3px] border border-file-accent/35 bg-file-accent/15" />
+          Directory (click to open)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-[3px] border bg-muted" />
+          File
+        </span>
+        {hasRest && (
+          <span className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-[3px] border border-dashed bg-surface-recessed" />
+            Smaller entries
+          </span>
+        )}
+        {emptyCount > 0 && (
+          <span className="ml-auto">
+            {formatCount(emptyCount)} zero-byte {emptyCount === 1 ? "entry" : "entries"} not drawn
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TreemapTooltip({
+  tile,
+  totalBytes,
+  x,
+  y,
+  flipX,
+  flipY,
+}: {
+  tile: TreemapTile;
+  totalBytes: number;
+  x: number;
+  y: number;
+  flipX: boolean;
+  flipY: boolean;
+}) {
+  const share = totalBytes > 0 ? (tile.bytes / totalBytes) * 100 : 0;
+  const detail = tileDetail(tile);
+  const translateX = flipX ? `calc(-100% - ${TOOLTIP_OFFSET}px)` : `${TOOLTIP_OFFSET}px`;
+  const translateY = flipY ? `calc(-100% - ${TOOLTIP_OFFSET}px)` : `${TOOLTIP_OFFSET}px`;
+
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute z-10 w-max max-w-64 rounded-lg border bg-popover px-2.5 py-1.5 text-popover-foreground shadow-md"
+      style={{ left: x, top: y, transform: `translate(${translateX}, ${translateY})` }}
+    >
+      <p className="text-sm font-semibold tabular-nums">
+        {formatBytes(tile.bytes)}{" "}
+        <span className="font-normal text-muted-foreground">· {share.toFixed(1)}%</span>
+      </p>
+      <p className="truncate text-xs">{tileName(tile)}</p>
+      {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+    </div>
+  );
+}
+
 function DiskUsagePanel() {
   const rpc = useRpc<typeof rpcContract>();
   // null asks the server for its default (the server home directory).
@@ -150,6 +428,7 @@ function DiskUsagePanel() {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [pathDraft, setPathDraft] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [view, setView] = useState<ViewMode>(loadStoredView);
   const scanIdRef = useRef<string | null>(null);
   const forceRefreshRef = useRef(false);
 
@@ -274,21 +553,30 @@ function DiskUsagePanel() {
         {result && (
           <section className={isScanning ? "opacity-60 transition-opacity" : "transition-opacity"}>
             <div className="rounded-xl border bg-card p-4">
-              <nav className="flex flex-wrap items-center gap-1 text-sm" aria-label="Path">
-                {crumbs.map((crumb, index) => (
-                  <span key={crumb.path} className="flex items-center gap-1">
-                    {index > 1 && <span className="text-muted-foreground">/</span>}
-                    <button
-                      type="button"
-                      onClick={() => setPath(crumb.path)}
-                      disabled={index === crumbs.length - 1}
-                      className="rounded px-1 py-0.5 font-medium hover:bg-surface-recessed disabled:text-foreground disabled:hover:bg-transparent"
-                    >
-                      {crumb.label}
-                    </button>
-                  </span>
-                ))}
-              </nav>
+              <div className="flex items-start justify-between gap-3">
+                <nav className="flex flex-wrap items-center gap-1 text-sm" aria-label="Path">
+                  {crumbs.map((crumb, index) => (
+                    <span key={crumb.path} className="flex items-center gap-1">
+                      {index > 1 && <span className="text-muted-foreground">/</span>}
+                      <button
+                        type="button"
+                        onClick={() => setPath(crumb.path)}
+                        disabled={index === crumbs.length - 1}
+                        className="rounded px-1 py-0.5 font-medium hover:bg-surface-recessed disabled:text-foreground disabled:hover:bg-transparent"
+                      >
+                        {crumb.label}
+                      </button>
+                    </span>
+                  ))}
+                </nav>
+                <ViewToggle
+                  value={view}
+                  onChange={(next) => {
+                    setView(next);
+                    storeView(next);
+                  }}
+                />
+              </div>
               <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
                 <p className="text-3xl font-semibold tabular-nums tracking-tight">
                   {formatBytes(result.totalBytes)}
@@ -308,22 +596,25 @@ function DiskUsagePanel() {
               )}
             </div>
 
-            <ul className="mt-3 space-y-1.5">
-              {result.entries.map((entry) => (
-                <EntryRow
-                  key={entry.name}
-                  entry={entry}
-                  totalBytes={result.totalBytes}
-                  onOpen={openChild}
-                />
-              ))}
-            </ul>
-            {result.entries.length === 0 && (
+            {result.entries.length === 0 ? (
               <p className="mt-3 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
                 This directory is empty.
               </p>
+            ) : view === "treemap" ? (
+              <TreemapView result={result} onOpen={openChild} />
+            ) : (
+              <ul className="mt-3 space-y-1.5">
+                {result.entries.map((entry) => (
+                  <EntryRow
+                    key={entry.name}
+                    entry={entry}
+                    totalBytes={result.totalBytes}
+                    onOpen={openChild}
+                  />
+                ))}
+              </ul>
             )}
-            {result.omittedEntryCount > 0 && (
+            {view === "list" && result.omittedEntryCount > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
                 … and {formatCount(result.omittedEntryCount)} smaller entries not shown.
               </p>
