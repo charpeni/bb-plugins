@@ -1,8 +1,14 @@
 # Agent Calendar plugin
 
 Shows what your agents worked on and when, the way you would check your own
-calendar: a weekly **calendar** of work blocks and a **time sheet** of hours per
-thread and day.
+calendar: a **calendar** of work blocks by day, 3 days, or week, and a **time
+sheet** of hours per thread and day.
+
+<img width="1440" height="1000" alt="Week view: one block per thread, colored by project, with two threads still running on Friday" src="screenshots/week.png" />
+
+<img width="1440" height="1000" alt="Day view: the same Friday with each thread's full title, time span, and project" src="screenshots/day.png" />
+
+The screenshots use sample data.
 
 ## Install
 
