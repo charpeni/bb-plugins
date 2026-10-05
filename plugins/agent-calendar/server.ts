@@ -20,6 +20,9 @@ import {
 } from "./activity.js";
 
 const MAX_RANGE_MS = 62 * DAY_MS;
+// Colors go to the most active projects of this window, whatever range is shown.
+const COLOR_WINDOW_MS = 30 * DAY_MS;
+const COLOR_SLOTS = 8;
 const THREAD_PAGE_SIZE = 500;
 // The events endpoint refuses pages larger than 100.
 const EVENT_PAGE_SIZE = 100;
@@ -61,6 +64,8 @@ export const activitySchema = z.object({
   generatedAt: z.number(),
   syncedAt: z.number().nullable(),
   projects: z.array(z.object({ id: z.string(), name: z.string() })),
+  /** Project IDs that own the color slots, in slot order. */
+  colorOrder: z.array(z.string()),
   threads: z.array(
     z.object({
       id: z.string(),
@@ -243,6 +248,29 @@ function readTurns(db: PluginDatabase, from: number, to: number): TurnInterval[]
   });
 }
 
+/** The most active projects over the color window, most active first. */
+function busiestProjects(db: PluginDatabase, now: number): string[] {
+  const from = now - COLOR_WINDOW_MS;
+  const projectOf = new Map(
+    (db.prepare("SELECT id, project_id FROM threads").all() as ThreadRow[]).map((row) => [
+      row.id,
+      row.project_id,
+    ]),
+  );
+  const totals = new Map<string, number>();
+  // readTurns caps abandoned turns, which would otherwise count until now.
+  for (const turn of readTurns(db, from, now)) {
+    const projectId = projectOf.get(turn.threadId);
+    if (projectId === undefined) continue;
+    const ms = Math.max(0, (turn.end ?? now) - Math.max(turn.start, from));
+    totals.set(projectId, (totals.get(projectId) ?? 0) + ms);
+  }
+  return [...totals]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, COLOR_SLOTS)
+    .map(([projectId]) => projectId);
+}
+
 function threadTitle(row: Pick<ThreadRow, "id" | "title">): string {
   return row.title?.trim() || `Untitled thread (${row.id})`;
 }
@@ -421,6 +449,7 @@ export default function plugin(bb: BbPluginApi) {
             .prepare(`SELECT * FROM threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`)
             .all(...threadIds) as ThreadRow[]);
     const projects = await bb.sdk.projects.list({ includePersonal: true });
+    const busiest = new Set(busiestProjects(db, now));
     return {
       from,
       to,
@@ -428,6 +457,10 @@ export default function plugin(bb: BbPluginApi) {
       generatedAt: now,
       syncedAt: readSyncedAt(),
       projects: projects.map((project) => ({ id: project.id, name: project.name })),
+      // Slots follow bb's project order, so a project keeps its color in every view.
+      colorOrder: projects
+        .filter((project) => busiest.has(project.id))
+        .map((project) => project.id),
       threads: threadRows.map((row) => ({
         id: row.id,
         projectId: row.project_id,

@@ -33,11 +33,17 @@ reads each thread's `turn/started` and `turn/completed` events, then:
 2. Rounds each block out to the surrounding quarter hours, like a person's
    calendar entry. A two-minute turn takes a 15-minute slot.
 
-The calendar groups blocks by **project** by default. Parallel threads of one
-project become one entry ("monorepo, 9:00–11:45, 17 threads"). Click an
-entry to list its threads and open one. Switch to **Threads** to see each
-thread on its own. The time sheet lists every thread under its project, with
-decimal hours per day, and can copy itself as CSV.
+The calendar shows a **Day**, **3 days** (ending on the selected day), or
+**Week** at a time. Click a day's header, in the calendar or the time sheet,
+to focus on that day. Each thread is its own entry, colored by its project.
+Switch to **Projects** to merge a project's parallel threads into one entry
+("monorepo, 9:00–11:45, 17 threads"); click it to list its threads and open
+one. The time sheet lists every thread under its project, with decimal hours
+per day, and can copy itself as CSV.
+
+The eight projects with the most agent time over the last 30 days get the
+palette's colors, in bb's project order, so a project keeps its color in every
+view. Other projects share a neutral color.
 
 Hours count each thread, so five agents working for one hour count as five
 hours. "Agent turns" is the time turns were running, before merging and

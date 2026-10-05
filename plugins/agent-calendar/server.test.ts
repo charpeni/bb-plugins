@@ -141,6 +141,33 @@ describe("Agent Calendar server", () => {
     expect(activity.threads.find((item) => item.id === "thr_a")?.title).toBe("Fix the flaky test");
   });
 
+  it("keeps project colors the same whatever range is shown", async () => {
+    const world = createWorld();
+    world.threads.push(
+      thread({ id: "thr_web", projectId: "proj_web" }),
+      thread({ id: "thr_api", projectId: "proj_api" }),
+    );
+    const recent = Date.now() - 2 * 86_400_000;
+    world.events.set("thr_web", turnEvents("thr_web", [[recent, recent + 3_600_000]]));
+    world.events.set(
+      "thr_api",
+      turnEvents("thr_api", [[recent - 86_400_000, recent - 85_000_000]]),
+    );
+    await plugin(world.host.bb);
+
+    const oneDay = activitySchema.parse(
+      await world.host.harness.callRpc("activity", {
+        from: recent - 3_600_000,
+        to: recent + 2 * 3_600_000,
+        mergeGapMinutes: 30,
+      }),
+    );
+
+    expect(oneDay.threads.map((item) => item.id)).toEqual(["thr_web"]);
+    // Both projects keep their slots, in bb's project order.
+    expect(oneDay.colorOrder).toEqual(["proj_web", "proj_api"]);
+  });
+
   it("pages through long turn histories", async () => {
     const world = createWorld();
     world.threads.push(thread({ id: "thr_long" }));

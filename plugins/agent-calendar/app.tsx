@@ -33,7 +33,7 @@ import {
 
 type Activity = PluginRpcResult<(typeof rpcContract)["activity"]>;
 type ActivityThread = Activity["threads"][number];
-type View = "calendar" | "timesheet";
+type View = "day" | "3days" | "week" | "timesheet";
 type Grouping = "project" | "thread";
 type ProjectStyle = { id: string; name: string; color: string; order: number };
 
@@ -41,18 +41,23 @@ const VIEW_STORAGE_KEY = "agent-calendar.view";
 const GAP_STORAGE_KEY = "agent-calendar.merge-gap";
 const GROUPING_STORAGE_KEY = "agent-calendar.grouping";
 
-const HOUR_PX = 48;
+const VIEW_DAYS: Record<View, number> = { day: 1, "3days": 3, week: 7, timesheet: 7 };
+
+// Week stays compact; Day and 3 days give a quarter hour room for one line.
+const WEEK_HOUR_PX = 48;
+const FOCUS_HOUR_PX = 64;
 const DAY_MINUTES = 24 * 60;
 const POPOVER_WIDTH = 280;
 const POPOVER_THREAD_PREVIEW = 6;
 
 // Fixed-order categorical palette, validated for CVD separation in both modes.
-// Projects past the eighth fold into a neutral "other" color.
+// Projects outside the eight busiest share a neutral "other" color.
 const PALETTE = {
   light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
   dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
 } as const;
 const OTHER_COLOR = "#898781";
+const COLOR_SLOT_COUNT = 8;
 
 function readStored<T>(key: string, parse: (value: string | null) => T | null, fallback: T): T {
   try {
@@ -157,27 +162,30 @@ function useActivity(from: number, to: number, gap: MergeGapMinutes) {
   };
 }
 
-/** Colors follow the project, in bb's project order, for the projects in view. */
+/**
+ * Colors follow the project: the server hands the palette to the busiest
+ * projects of the last 30 days, so a project keeps its color in every view.
+ * Other projects share a neutral color.
+ */
 function useProjectStyles(activity: Activity | null): Map<string, ProjectStyle> {
   const { mode } = experimental_useCodeTheme();
   return useMemo(() => {
     const styles = new Map<string, ProjectStyle>();
     if (!activity) return styles;
-    const inView = new Set(activity.threads.map((thread) => thread.projectId));
-    const ordered = activity.projects.filter((project) => inView.has(project.id));
-    for (const thread of activity.threads) {
-      if (!ordered.some((project) => project.id === thread.projectId)) {
-        ordered.push({ id: thread.projectId, name: "Unknown project" });
-      }
-    }
-    ordered.forEach((project, index) => {
-      styles.set(project.id, {
-        id: project.id,
-        name: project.name,
-        color: PALETTE[mode][index] ?? OTHER_COLOR,
-        order: index,
+    const slots = new Map(activity.colorOrder.map((id, slot) => [id, slot]));
+    const names = new Map(activity.projects.map((project) => [project.id, project.name]));
+    const order = new Map(activity.projects.map((project, index) => [project.id, index]));
+    const inView = [...new Set(activity.threads.map((thread) => thread.projectId))];
+    for (const id of inView) {
+      const slot = slots.get(id);
+      styles.set(id, {
+        id,
+        name: names.get(id) ?? "Unknown project",
+        color: slot === undefined ? OTHER_COLOR : PALETTE[mode][slot]!,
+        // Colored projects first, in slot order; the rest in bb's order.
+        order: slot ?? COLOR_SLOT_COUNT + (order.get(id) ?? activity.projects.length),
       });
-    });
+    }
     return styles;
   }, [activity, mode]);
 }
@@ -530,20 +538,26 @@ function CalendarView({
   activity,
   grouping,
   gap,
-  weekStart,
+  rangeStart,
+  dayCount,
   projects,
   now,
   onOpen,
+  onSelectDay,
 }: {
   activity: Activity;
   grouping: Grouping;
   gap: MergeGapMinutes;
-  weekStart: number;
+  rangeStart: number;
+  dayCount: number;
   projects: Map<string, ProjectStyle>;
   now: number;
   onOpen: (threadId: string) => void;
+  onSelectDay: (dayStart: number) => void;
 }) {
-  const boundaries = useMemo(() => dayBoundaries(weekStart, 7), [weekStart]);
+  const boundaries = useMemo(() => dayBoundaries(rangeStart, dayCount), [rangeStart, dayCount]);
+  const rangeKey = `${rangeStart}:${dayCount}`;
+  const hourPx = dayCount >= 7 ? WEEK_HOUR_PX : FOCUS_HOUR_PX;
   const threads = useMemo(
     () => new Map(activity.threads.map((thread) => [thread.id, thread])),
     [activity.threads],
@@ -569,23 +583,23 @@ function CalendarView({
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const scrolledWeek = useRef<number | null>(null);
+  const scrolledRange = useRef<string | null>(null);
   const [popover, setPopover] = useState<Popover | null>(null);
 
-  // Open each week on its first entry (or 8 AM), the way a calendar app does.
+  // Open each range on its first entry (or 8 AM), the way a calendar app does.
   useLayoutEffect(() => {
-    if (scrolledWeek.current === weekStart) return;
-    scrolledWeek.current = weekStart;
+    if (scrolledRange.current === rangeKey) return;
+    scrolledRange.current = rangeKey;
     const earliest = Math.min(8 * 60, ...days.flatMap((day) => day.segments.map((s) => s.top)));
     const frame = window.requestAnimationFrame(() => {
       if (scrollRef.current) {
-        scrollRef.current.scrollTop = Math.max(0, (earliest / 60 - 0.5) * HOUR_PX);
+        scrollRef.current.scrollTop = Math.max(0, (earliest / 60 - 0.5) * hourPx);
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [days, weekStart]);
+  }, [days, rangeKey, hourPx]);
 
-  useEffect(() => setPopover(null), [weekStart, grouping]);
+  useEffect(() => setPopover(null), [rangeKey, grouping]);
 
   // A pinned popover closes on Escape or a click anywhere else.
   const pinned = popover?.pinned ?? false;
@@ -632,7 +646,9 @@ function CalendarView({
   };
 
   const hours = Array.from({ length: 24 }, (_, hour) => hour);
-  const gridTemplate = { gridTemplateColumns: "3.25rem repeat(7, minmax(6.5rem, 1fr))" };
+  const gridTemplate = {
+    gridTemplateColumns: `3.25rem repeat(${dayCount}, minmax(6.5rem, 1fr))`,
+  };
 
   return (
     <div ref={wrapperRef} className="relative flex min-h-0 flex-1 flex-col">
@@ -641,13 +657,13 @@ function CalendarView({
         className="min-h-0 flex-1 overflow-auto rounded-lg border bg-card"
         onScroll={() => setPopover(null)}
       >
-        <div className="min-w-[49rem]">
+        <div style={{ minWidth: `${3.25 + dayCount * 6.5}rem` }}>
           <div className="sticky top-0 z-20 grid border-b bg-card" style={gridTemplate}>
             <div />
             {days.map((day) => {
               const isToday = day.dayStart === today;
-              return (
-                <div key={day.dayStart} className="border-l px-2 py-2 text-center">
+              const label = (
+                <>
                   <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                     {weekdayFormat.format(day.dayStart)}
                   </p>
@@ -661,18 +677,34 @@ function CalendarView({
                   <p className="h-4 text-[11px] tabular-nums text-muted-foreground">
                     {formatHours(day.totalMs) && `${formatHours(day.totalMs)}h`}
                   </p>
+                </>
+              );
+              // A single day is already in focus; otherwise the header zooms in.
+              return dayCount === 1 ? (
+                <div key={day.dayStart} className="border-l px-2 py-2 text-center">
+                  {label}
                 </div>
+              ) : (
+                <button
+                  key={day.dayStart}
+                  type="button"
+                  title="Show this day"
+                  onClick={() => onSelectDay(day.dayStart)}
+                  className="border-l px-2 py-2 text-center transition-colors hover:bg-muted/60"
+                >
+                  {label}
+                </button>
               );
             })}
           </div>
 
-          <div className="relative grid" style={{ ...gridTemplate, height: 24 * HOUR_PX }}>
+          <div className="relative grid" style={{ ...gridTemplate, height: 24 * hourPx }}>
             <div className="relative">
               {hours.slice(1).map((hour) => (
                 <span
                   key={hour}
                   className="absolute right-2 -translate-y-1/2 text-[10px] tabular-nums text-muted-foreground"
-                  style={{ top: hour * HOUR_PX }}
+                  style={{ top: hour * hourPx }}
                 >
                   {hourFormat.format(new Date(2000, 0, 1, hour))}
                 </span>
@@ -692,19 +724,19 @@ function CalendarView({
                       key={hour}
                       aria-hidden
                       className="absolute inset-x-0 border-t border-border/60"
-                      style={{ top: hour * HOUR_PX }}
+                      style={{ top: hour * hourPx }}
                     />
                   ))}
                   {day.segments.map((segment) => {
                     const { entry } = segment;
                     const color = projects.get(entry.projectId)?.color ?? OTHER_COLOR;
-                    const height = ((segment.bottom - segment.top) / 60) * HOUR_PX - 2;
+                    const height = ((segment.bottom - segment.top) / 60) * hourPx - 2;
                     const lane = 100 / segment.lanes;
                     const isActive = popover?.entry === entry;
                     const style: CSSProperties = {
                       borderLeftColor: color,
                       backgroundColor: `color-mix(in oklab, ${color} ${isActive ? 30 : 18}%, transparent)`,
-                      top: (segment.top / 60) * HOUR_PX + 1,
+                      top: (segment.top / 60) * hourPx + 1,
                       height,
                       left: `calc(${segment.lane * lane}% + 2px)`,
                       width: `calc(${segment.span * lane}% - 4px)`,
@@ -724,7 +756,7 @@ function CalendarView({
                           if (!pinned) setPopover(null);
                         }}
                         aria-label={`${entry.title}, ${entry.detail}, ${longDayFormat.format(entry.start)} ${formatSpan(entry.start, entry.end)}`}
-                        className="absolute z-10 overflow-hidden rounded-[4px] border-l-[3px] px-1.5 py-0.5 text-left text-[11px] leading-tight text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-ring"
+                        className={`absolute z-10 overflow-hidden rounded-[4px] border-l-[3px] px-1.5 text-left text-[11px] leading-[14px] text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-ring ${height < 20 ? "py-0" : "py-0.5"}`}
                       >
                         <span className="flex items-center gap-1">
                           {entry.ongoing && <RunningDot />}
@@ -747,7 +779,7 @@ function CalendarView({
                     <div
                       aria-hidden
                       className="pointer-events-none absolute inset-x-0 z-20 h-0.5 bg-primary"
-                      style={{ top: (wallMinutes(now, day.dayStart) / 60) * HOUR_PX }}
+                      style={{ top: (wallMinutes(now, day.dayStart) / 60) * hourPx }}
                     >
                       <span className="absolute -left-1 -top-1 size-2.5 rounded-full bg-primary" />
                     </div>
@@ -785,12 +817,14 @@ function TimesheetView({
   projects,
   now,
   onOpen,
+  onSelectDay,
 }: {
   activity: Activity;
   weekStart: number;
   projects: Map<string, ProjectStyle>;
   now: number;
   onOpen: (threadId: string) => void;
+  onSelectDay: (dayStart: number) => void;
 }) {
   const boundaries = useMemo(() => dayBoundaries(weekStart, 7), [weekStart]);
   const rows = useMemo(
@@ -880,9 +914,16 @@ function TimesheetView({
             {dayStarts.map((dayStart) => (
               <th
                 key={dayStart}
-                className={`w-[4.5rem] px-3 py-2 text-right font-medium ${dayStart === today ? "bg-primary/5 text-foreground" : ""}`}
+                className={`w-[4.5rem] p-0 text-right font-medium ${dayStart === today ? "bg-primary/5 text-foreground" : ""}`}
               >
-                {weekdayFormat.format(dayStart)} {new Date(dayStart).getDate()}
+                <button
+                  type="button"
+                  title="Show this day in the calendar"
+                  onClick={() => onSelectDay(dayStart)}
+                  className="w-full px-3 py-2 text-right uppercase transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  {weekdayFormat.format(dayStart)} {new Date(dayStart).getDate()}
+                </button>
               </th>
             ))}
             <th className="w-20 px-3 py-2 text-right font-medium">Total</th>
@@ -992,13 +1033,15 @@ function GroupRows({
 // Page
 
 const VIEW_OPTIONS = [
-  { value: "calendar", label: "Calendar" },
+  { value: "day", label: "Day" },
+  { value: "3days", label: "3 days" },
+  { value: "week", label: "Week" },
   { value: "timesheet", label: "Time sheet" },
 ] as const;
 
 const GROUPING_OPTIONS = [
-  { value: "project", label: "Projects" },
   { value: "thread", label: "Threads" },
+  { value: "project", label: "Projects" },
 ] as const;
 
 const GAP_OPTIONS = MERGE_GAP_MINUTES.map((minutes) => ({
@@ -1006,16 +1049,35 @@ const GAP_OPTIONS = MERGE_GAP_MINUTES.map((minutes) => ({
   label: minutes < 60 ? `${minutes}m` : `${minutes / 60}h`,
 }));
 
+const dayTitleFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+function parseView(value: string | null): View | null {
+  // "calendar" is the stored name of the week view before Day and 3 days existed.
+  if (value === "calendar") return "week";
+  return VIEW_OPTIONS.some((option) => option.value === value) ? (value as View) : null;
+}
+
+/**
+ * The days a view shows around the selected day. The 3-day view ends on the
+ * selected day, because the calendar looks back at work already done.
+ */
+function viewRange(view: View, day: number): { from: number; to: number; days: number } {
+  const days = VIEW_DAYS[view];
+  const from = days === 7 ? startOfWeek(day) : addDays(day, 1 - days);
+  return { from, to: addDays(from, days), days };
+}
+
 function AgentCalendarPage() {
   const navigate = useBbNavigate();
   const now = useNow(60_000);
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(Date.now()));
+  const [day, setDay] = useState(() => startOfDay(Date.now()));
   const [view, setView] = useState<View>(() =>
-    readStored<View>(
-      VIEW_STORAGE_KEY,
-      (value) => (value === "calendar" || value === "timesheet" ? value : null),
-      "calendar",
-    ),
+    readStored<View>(VIEW_STORAGE_KEY, parseView, "week"),
   );
   const [gap, setGap] = useState<MergeGapMinutes>(() =>
     readStored<MergeGapMinutes>(
@@ -1031,15 +1093,28 @@ function AgentCalendarPage() {
     readStored<Grouping>(
       GROUPING_STORAGE_KEY,
       (value) => (value === "project" || value === "thread" ? value : null),
-      "project",
+      "thread",
     ),
   );
-  const weekEnd = addDays(weekStart, 7);
-  const { data, isStale, error } = useActivity(weekStart, weekEnd, gap);
+  const range = viewRange(view, day);
+  const { data, isStale, error } = useActivity(range.from, range.to, gap);
   const projects = useProjectStyles(data);
-  const isCurrentWeek = weekStart === startOfWeek(now);
+  const showsNow = now >= range.from && now < range.to;
   const openThread = useCallback((threadId: string) => navigate.toThread(threadId), [navigate]);
-  const weekLabel = rangeFormat.formatRange(weekStart, addDays(weekStart, 6));
+  const changeView = (next: View) => {
+    setView(next);
+    store(VIEW_STORAGE_KEY, next);
+  };
+  const focusDay = (dayStart: number) => {
+    setDay(dayStart);
+    changeView("day");
+  };
+  const unit = range.days === 1 ? "day" : range.days === 3 ? "3 days" : "week";
+  const title =
+    range.days === 1
+      ? dayTitleFormat.format(range.from)
+      : rangeFormat.formatRange(range.from, addDays(range.to, -1));
+  const isCalendar = view !== "timesheet";
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-3 md:px-5 md:pt-4">
@@ -1047,29 +1122,29 @@ function AgentCalendarPage() {
         <div className="flex items-center gap-1">
           <IconButton
             icon="ChevronLeft"
-            label="Previous week"
-            onClick={() => setWeekStart((start) => addDays(start, -7))}
+            label={`Previous ${unit}`}
+            onClick={() => setDay((current) => addDays(current, -range.days))}
           />
           <button
             type="button"
-            disabled={isCurrentWeek}
-            onClick={() => setWeekStart(startOfWeek(Date.now()))}
+            disabled={showsNow}
+            onClick={() => setDay(startOfDay(Date.now()))}
             className="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent"
           >
-            This week
+            Today
           </button>
           <IconButton
             icon="ChevronRight"
-            label="Next week"
-            onClick={() => setWeekStart((start) => addDays(start, 7))}
+            label={`Next ${unit}`}
+            onClick={() => setDay((current) => addDays(current, range.days))}
           />
         </div>
-        <h1 className="text-sm font-semibold">{weekLabel}</h1>
+        <h1 className="text-sm font-semibold">{title}</h1>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {view === "calendar" && (
+          {isCalendar && (
             <Segmented
               label="Group by"
-              title="One entry per project, or one per thread"
+              title="One entry per thread, or one per project"
               value={grouping}
               options={GROUPING_OPTIONS}
               onChange={(next) => {
@@ -1088,15 +1163,7 @@ function AgentCalendarPage() {
               store(GAP_STORAGE_KEY, String(next));
             }}
           />
-          <Segmented
-            label="View"
-            value={view}
-            options={VIEW_OPTIONS}
-            onChange={(next) => {
-              setView(next);
-              store(VIEW_STORAGE_KEY, next);
-            }}
-          />
+          <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={changeView} />
         </div>
       </header>
 
@@ -1115,29 +1182,32 @@ function AgentCalendarPage() {
           <Summary activity={data} />
           {data.blocks.length === 0 ? (
             <EmptyState>
-              No agent activity {isCurrentWeek ? "this week yet" : "this week"}. Blocks appear while
-              threads are working.
+              No agent activity {range.days === 1 ? "on this day" : `in this ${unit}`}
+              {showsNow ? " yet" : ""}. Blocks appear while threads are working.
             </EmptyState>
           ) : (
             <>
               <Legend activity={data} projects={projects} />
-              {view === "calendar" ? (
+              {isCalendar ? (
                 <CalendarView
                   activity={data}
                   grouping={grouping}
                   gap={gap}
-                  weekStart={weekStart}
+                  rangeStart={range.from}
+                  dayCount={range.days}
                   projects={projects}
                   now={now}
                   onOpen={openThread}
+                  onSelectDay={focusDay}
                 />
               ) : (
                 <TimesheetView
                   activity={data}
-                  weekStart={weekStart}
+                  weekStart={range.from}
                   projects={projects}
                   now={now}
                   onOpen={openThread}
+                  onSelectDay={focusDay}
                 />
               )}
             </>
@@ -1145,7 +1215,7 @@ function AgentCalendarPage() {
           <p className="text-xs text-muted-foreground">
             Work separated by up to {GAP_OPTIONS.find((option) => option.value === gap)?.label} of
             idle time shares one block, rounded out to quarter hours.
-            {view === "calendar" && grouping === "project"
+            {isCalendar && grouping === "project"
               ? " Hours count each thread, so parallel agents add up."
               : ""}
           </p>
