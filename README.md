@@ -28,6 +28,7 @@ bb plugin install system-monitor@charpeni
 
 | Plugin                                   | Description                                                                        |
 | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| [Agent Calendar](plugins/agent-calendar) | See what your agents worked on and when, as a weekly calendar or a time sheet.     |
 | [Dependabot](plugins/dependabot)         | Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents. |
 | [Disk Usage](plugins/disk-usage)         | See what's taking up disk space on the bb server host, with drill-down.            |
 | [Skills.sh](plugins/skills-sh)           | Install skills.sh skills globally for every AI agent bb runs, with drift updates.  |

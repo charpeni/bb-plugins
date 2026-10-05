@@ -1,0 +1,66 @@
+{
+  "name": "bb-plugin-agent-calendar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "See what your agents worked on and when, as a weekly calendar or a time sheet.",
+  "keywords": [
+    "activity",
+    "bb-plugin",
+    "calendar",
+    "timesheet"
+  ],
+  "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/agent-calendar#readme",
+  "bugs": {
+    "url": "https://github.com/charpeni/bb-plugins/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charpeni/bb-plugins.git",
+    "directory": "plugins/agent-calendar"
+  },
+  "files": [
+    "dist",
+    "server.ts",
+    "activity.ts",
+    "app.tsx",
+    "skills",
+    "README.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bb plugin build",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.15",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.18",
+    "bb-app": "^0.45.0",
+    "better-sqlite3": "^13.0.3",
+    "cron-parser": "^5.10.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "bb": ">=0.45",
+    "bbPluginSdk": ">=0.6.15"
+  },
+  "bb": {
+    "name": "Agent Calendar",
+    "description": "See what your agents worked on and when, as a weekly calendar or a time sheet.",
+    "branding": {
+      "icon": "CalendarDays"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "skills"
+    ]
+  }
+}

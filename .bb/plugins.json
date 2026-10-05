@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "name": "charpeni-plugins",
   "plugins": [
+    { "name": "agent-calendar", "source": "./plugins/agent-calendar" },
     { "name": "dependabot", "source": "./plugins/dependabot" },
     { "name": "disk-usage", "source": "./plugins/disk-usage" },
     { "name": "skills-sh", "source": "./plugins/skills-sh" },
