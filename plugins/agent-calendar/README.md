@@ -60,6 +60,9 @@ threads drop out.
 Times use the viewer's time zone in the app and the bb server's time zone in
 the CLI. Weeks start on Monday.
 
+The icon adapts the [Hugeicons](https://hugeicons.com) Calendar 03 glyph
+(MIT), with three bars standing for parallel agent sessions.
+
 ## Develop
 
 From the repository root:

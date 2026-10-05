@@ -1229,7 +1229,8 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "agent-calendar",
     title: "Agent Calendar",
-    icon: "CalendarDays",
+    // Declared in package.json under bb.branding.experimental_icons.
+    icon: "agent-calendar/calendar",
     path: "calendar",
     component: AgentCalendarPage,
   });
