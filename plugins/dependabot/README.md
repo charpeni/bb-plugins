@@ -22,7 +22,7 @@ bb plugin install dependabot@charpeni
 Or directly from this repository:
 
 ```sh
-bb plugin install git:https://github.com/charpeni/bb-plugins.git@^0.1.0 --tag-prefix dependabot/ --plugin dependabot
+bb plugin install git:https://github.com/charpeni/bb-plugins.git@^1.0.0 --tag-prefix dependabot/ --plugin dependabot
 ```
 
 ## Authentication

@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-disk-usage",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "private": true,
   "description": "See what's taking up disk space on the bb server host, with drill-down by directory.",
   "keywords": [

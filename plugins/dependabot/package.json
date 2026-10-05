@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-dependabot",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "private": true,
   "description": "Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents.",
   "keywords": [
