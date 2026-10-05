@@ -35,6 +35,20 @@ The panel refreshes every five seconds. Because plugin backend code runs in the
 bb server process, the values describe the server host, not a separately
 enrolled execution machine.
 
+Each card has a bar that breaks the current value down: CPU into user,
+system, and idle time; memory into apps, file cache, and free; disk into used
+and free.
+
+## Memory
+
+The memory percentage is what apps hold (`MemTotal - MemAvailable`, the same
+as the `used` column of `free`). On Linux, the bar also shows the **file
+cache**: recently used files kept in RAM for speed, which the kernel frees as
+soon as apps need the memory. Hypervisors such as Proxmox count that cache as
+used because the guest still occupies it, so their figure for a VM is apps
+plus file cache, the two filled segments of the bar. Hover **File cache** for
+the combined total.
+
 ## History
 
 While the plugin is loaded, a background service records a CPU/memory/disk
@@ -42,10 +56,12 @@ sample every 30 seconds into the plugin's own SQLite database and keeps 31
 days of data. Each metric card embeds a sparkline of that history over three
 ranges — **1D** (5-minute averages), **7D** (30-minute averages), and **30D**
 (2-hour averages) — with the range average and peak below it and a hover
-crosshair synced across the three cards. The selected range is remembered
-across reloads, and `bb system-monitor history --json` exposes the exact
-bucket values. Gaps where the bb server was not running are left as breaks
-in the line rather than interpolated.
+crosshair synced across the three cards. The memory chart stacks the file
+cache as a lighter band above the apps line; samples recorded before cache
+tracking was added have no band. The selected range is remembered across
+reloads, and `bb system-monitor history --json` exposes the exact bucket
+values. Gaps where the bb server was not running are left as breaks in the
+line rather than interpolated.
 
 ## Develop
 

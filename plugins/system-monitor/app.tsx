@@ -8,6 +8,15 @@ type SystemHistory = PluginRpcResult<(typeof rpcContract)["history"]>;
 type HistoryRange = SystemHistory["range"];
 type HistoryPoint = SystemHistory["points"][number];
 type MetricKey = "cpuPercent" | "memoryPercent" | "diskPercent";
+type BandKey = "memoryCachePercent";
+type UsageSegment = {
+  label: string;
+  value: string;
+  percent: number;
+  // Omitted for the unfilled remainder (free, idle), which shows the bar's track.
+  color?: string;
+  title?: string;
+};
 
 const HISTORY_RANGES: Array<{ id: HistoryRange; label: string }> = [
   { id: "1d", label: "1D" },
@@ -21,6 +30,10 @@ const SPARK_HEIGHT = 48;
 const SPARK_TOP = 4;
 const SPARK_BOTTOM = 4;
 const GAP_FACTOR = 2.5;
+
+const PRIMARY_COLOR = "var(--primary)";
+const SECONDARY_COLOR = "color-mix(in oklab, var(--primary) 45%, transparent)";
+const CACHE_COLOR = "color-mix(in oklab, var(--muted-foreground) 40%, transparent)";
 
 function loadStoredRange(): HistoryRange {
   try {
@@ -52,13 +65,17 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${units[unit]}`;
 }
 
-function formatBytesPair(used: number, total: number): string {
-  const usedFormatted = formatBytes(used);
-  const totalFormatted = formatBytes(total);
-  const usedUnit = usedFormatted.split(" ")[1];
-  const totalUnit = totalFormatted.split(" ")[1];
-  if (usedUnit === totalUnit) return `${usedFormatted.split(" ")[0]} / ${totalFormatted}`;
-  return `${usedFormatted} / ${totalFormatted}`;
+function percentOf(part: number, total: number): number {
+  return total > 0 ? (part / total) * 100 : 0;
+}
+
+function memoryCacheTitle(memory: SystemStats["memory"]): string {
+  const withCache = memory.usedBytes + (memory.cacheBytes ?? 0);
+  const withCachePercent = percentOf(withCache, memory.totalBytes);
+  return [
+    "Recently used files kept in RAM for speed, freed automatically when apps need memory.",
+    `Apps + file cache: ${formatBytes(withCache)} (${withCachePercent.toFixed(1)}%), which hypervisors such as Proxmox report as used.`,
+  ].join("\n");
 }
 
 function formatUptime(seconds: number): string {
@@ -123,6 +140,39 @@ function CompactStat({
   );
 }
 
+function UsageBar({ segments }: { segments: UsageSegment[] }) {
+  return (
+    <div className="mt-2">
+      <div aria-hidden className="flex h-1.5 overflow-hidden rounded-full bg-surface-recessed">
+        {segments.map(
+          (segment) =>
+            segment.color && (
+              <div
+                key={segment.label}
+                className="h-full transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                style={{ width: `${segment.percent}%`, background: segment.color }}
+              />
+            ),
+        )}
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+        {segments.map((segment) => (
+          <li key={segment.label} className="whitespace-nowrap" title={segment.title}>
+            <p className="flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className={`size-2 shrink-0 rounded-[2px] ${segment.color ? "" : "border bg-surface-recessed"}`}
+                style={segment.color ? { background: segment.color } : undefined}
+              />
+              {segment.label}
+            </p>
+            <p className="pl-3.5 font-medium tabular-nums">{segment.value}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function RangeToggle({
   value,
   onChange,
@@ -160,6 +210,7 @@ type ChartHover = { t: number; source: MetricKey } | null;
 function Sparkline({
   label,
   metricKey,
+  bandKey,
   points,
   bucketMs,
   domain,
@@ -168,6 +219,8 @@ function Sparkline({
 }: {
   label: string;
   metricKey: MetricKey;
+  // Stacked on top of metricKey as a lighter band; points where it is null leave a break.
+  bandKey?: BandKey;
   points: HistoryPoint[];
   bucketMs: number;
   domain: [number, number];
@@ -196,6 +249,24 @@ function Sparkline({
     return result;
   }, [points, bucketMs]);
 
+  const bandSegments = useMemo(() => {
+    if (!bandKey) return [];
+    const result: HistoryPoint[][] = [];
+    for (const segment of segments) {
+      let current: HistoryPoint[] = [];
+      for (const point of segment) {
+        if (point[bandKey] === null) {
+          if (current.length > 1) result.push(current);
+          current = [];
+        } else {
+          current.push(point);
+        }
+      }
+      if (current.length > 1) result.push(current);
+    }
+    return result;
+  }, [segments, bandKey]);
+
   const hoverPoint = hover ? points.find((point) => point.t === hover.t) : undefined;
   const latest = points[points.length - 1];
 
@@ -212,6 +283,23 @@ function Sparkline({
     const first = segment[0];
     const last = segment[segment.length - 1];
     return `${linePath(segment)} L${x(last.t).toFixed(1)},${baselineY} L${x(first.t).toFixed(1)},${baselineY} Z`;
+  }
+
+  function bandTopPath(segment: HistoryPoint[]): string {
+    return segment
+      .map((point, index) => {
+        const top = Math.min(100, point[metricKey] + (bandKey ? (point[bandKey] ?? 0) : 0));
+        return `${index === 0 ? "M" : "L"}${x(point.t).toFixed(1)},${y(top).toFixed(1)}`;
+      })
+      .join(" ");
+  }
+
+  function bandPath(segment: HistoryPoint[]): string {
+    const bottom = [...segment]
+      .reverse()
+      .map((point) => `L${x(point.t).toFixed(1)},${y(point[metricKey]).toFixed(1)}`)
+      .join(" ");
+    return `${bandTopPath(segment)} ${bottom} Z`;
   }
 
   function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
@@ -237,6 +325,8 @@ function Sparkline({
     onHover(points[next].t, metricKey);
   }
 
+  const hoverBand = bandKey && hoverPoint ? hoverPoint[bandKey] : null;
+  const latestBand = bandKey && latest ? latest[bandKey] : null;
   const isTooltipSource = hover?.source === metricKey && hoverPoint !== undefined;
   const tooltipX = hoverPoint ? x(hoverPoint.t) : 0;
   const tooltipOnLeft = tooltipX > width * 0.55;
@@ -246,7 +336,7 @@ function Sparkline({
       ref={ref}
       tabIndex={0}
       role="img"
-      aria-label={`${label} trend${latest ? `, latest ${latest[metricKey].toFixed(1)}%` : ""}`}
+      aria-label={`${label} trend${latest ? `, latest ${latest[metricKey].toFixed(1)}%` : ""}${latestBand === null ? "" : ` plus ${latestBand.toFixed(1)}% file cache`}`}
       className="relative rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary"
       onKeyDown={handleKeyDown}
       onFocus={() => {
@@ -270,6 +360,19 @@ function Sparkline({
             stroke="var(--border)"
             strokeWidth={1}
           />
+          {bandSegments.map((segment, index) => (
+            <g key={index}>
+              <path d={bandPath(segment)} fill={CACHE_COLOR} fillOpacity={0.45} />
+              <path
+                d={bandTopPath(segment)}
+                fill="none"
+                stroke="var(--muted-foreground)"
+                strokeOpacity={0.45}
+                strokeWidth={1}
+                strokeLinejoin="round"
+              />
+            </g>
+          ))}
           {segments.map((segment, index) =>
             segment.length === 1 ? (
               <circle
@@ -342,6 +445,12 @@ function Sparkline({
             <span className="font-semibold tabular-nums">{hoverPoint[metricKey].toFixed(1)}%</span>{" "}
             <span className="text-muted-foreground">{label}</span>
           </p>
+          {hoverBand !== null && (
+            <p className="whitespace-nowrap text-xs">
+              <span className="font-semibold tabular-nums">+{hoverBand.toFixed(1)}%</span>{" "}
+              <span className="text-muted-foreground">file cache</span>
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -353,7 +462,9 @@ function MetricCard({
   value,
   detail,
   title,
+  segments,
   metricKey,
+  bandKey,
   history,
   domain,
   hover,
@@ -364,7 +475,9 @@ function MetricCard({
   value: string;
   detail?: string;
   title?: string;
+  segments: UsageSegment[];
   metricKey: MetricKey;
+  bandKey?: BandKey;
   history: SystemHistory | null;
   domain: [number, number] | null;
   hover: ChartHover;
@@ -382,7 +495,7 @@ function MetricCard({
   }, [points, metricKey]);
 
   return (
-    <article className="rounded-xl border bg-card p-4 shadow-sm" title={title}>
+    <article className="flex flex-col rounded-xl border bg-card p-4 shadow-sm" title={title}>
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           {label}
@@ -390,11 +503,14 @@ function MetricCard({
         {detail && <p className="truncate text-xs text-muted-foreground">{detail}</p>}
       </div>
       <p className="mt-1 text-2xl font-semibold">{value}</p>
-      <div className="mt-3">
+      <UsageBar segments={segments} />
+      {/* mt-auto keeps the charts aligned across cards when a legend wraps. */}
+      <div className="mt-auto pt-3">
         {history && points.length > 0 && domain ? (
           <Sparkline
             label={label}
             metricKey={metricKey}
+            bandKey={bandKey}
             points={points}
             bucketMs={history.bucketMs}
             domain={domain}
@@ -516,6 +632,67 @@ function SystemMonitorPanel() {
   const onHover = (t: number | null, source: MetricKey) =>
     setHover(t === null ? null : { t, source });
 
+  const { cpu, memory, disk } = stats;
+  const cpuSegments: UsageSegment[] = [
+    {
+      label: "User",
+      value: `${cpu.userPercent.toFixed(1)}%`,
+      percent: cpu.userPercent,
+      color: PRIMARY_COLOR,
+    },
+    {
+      label: "System",
+      value: `${cpu.systemPercent.toFixed(1)}%`,
+      percent: cpu.systemPercent,
+      color: SECONDARY_COLOR,
+    },
+    {
+      label: "Idle",
+      value: `${(100 - cpu.usagePercent).toFixed(1)}%`,
+      percent: 100 - cpu.usagePercent,
+    },
+  ];
+  const memoryFree = memory.availableBytes - (memory.cacheBytes ?? 0);
+  const memorySegments: UsageSegment[] = [
+    {
+      label: "Apps",
+      value: formatBytes(memory.usedBytes),
+      percent: memory.usedPercent,
+      color: PRIMARY_COLOR,
+      title: "Memory held by programs and the kernel",
+    },
+    ...(memory.cacheBytes === null
+      ? []
+      : [
+          {
+            label: "File cache",
+            value: formatBytes(memory.cacheBytes),
+            percent: percentOf(memory.cacheBytes, memory.totalBytes),
+            color: CACHE_COLOR,
+            title: memoryCacheTitle(memory),
+          },
+        ]),
+    {
+      // Without a cache figure, the remainder is everything apps could still claim.
+      label: memory.cacheBytes === null ? "Available" : "Free",
+      value: formatBytes(memoryFree),
+      percent: percentOf(memoryFree, memory.totalBytes),
+    },
+  ];
+  const diskSegments: UsageSegment[] = [
+    {
+      label: "Used",
+      value: formatBytes(disk.usedBytes),
+      percent: disk.usedPercent,
+      color: PRIMARY_COLOR,
+    },
+    {
+      label: "Free",
+      value: formatBytes(disk.availableBytes),
+      percent: percentOf(disk.availableBytes, disk.totalBytes),
+    },
+  ];
+
   return (
     <div className="h-full overflow-y-auto bg-background">
       <main className="mx-auto w-full max-w-6xl p-4 md:p-6">
@@ -557,6 +734,7 @@ function SystemMonitorPanel() {
             value={`${stats.cpu.usagePercent.toFixed(1)}%`}
             detail={`${stats.cpu.logicalCores} cores${stats.cpu.speedMHz === null ? "" : ` · ${(stats.cpu.speedMHz / 1000).toFixed(2)} GHz`}`}
             title={stats.cpu.model}
+            segments={cpuSegments}
             metricKey="cpuPercent"
             history={history}
             domain={domain}
@@ -567,8 +745,10 @@ function SystemMonitorPanel() {
           <MetricCard
             label="Memory"
             value={`${stats.memory.usedPercent.toFixed(1)}%`}
-            detail={formatBytesPair(stats.memory.usedBytes, stats.memory.totalBytes)}
+            detail={formatBytes(memory.totalBytes)}
+            segments={memorySegments}
             metricKey="memoryPercent"
+            bandKey="memoryCachePercent"
             history={history}
             domain={domain}
             hover={hover}
@@ -578,8 +758,9 @@ function SystemMonitorPanel() {
           <MetricCard
             label="Disk"
             value={`${stats.disk.usedPercent.toFixed(1)}%`}
-            detail={`${formatBytes(stats.disk.availableBytes)} free`}
+            detail={formatBytes(disk.totalBytes)}
             title={stats.disk.path}
+            segments={diskSegments}
             metricKey="diskPercent"
             history={history}
             domain={domain}

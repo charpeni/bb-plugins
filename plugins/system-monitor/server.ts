@@ -40,11 +40,19 @@ export const statsSchema = z.object({
   uptimeSeconds: z.number().nonnegative(),
   cpu: z.object({
     usagePercent: z.number().min(0).max(100),
+    // usagePercent split into user (user + nice) and system (sys + irq) time.
+    userPercent: z.number().min(0).max(100),
+    systemPercent: z.number().min(0).max(100),
     logicalCores: z.number().int().positive(),
     model: z.string(),
     speedMHz: z.number().positive().nullable(),
   }),
-  memory: usageSchema,
+  memory: usageSchema.extend({
+    // Reclaimable page cache and buffers, counted in availableBytes rather than usedBytes.
+    // Hypervisors such as Proxmox report usedBytes + cacheBytes as the guest's usage.
+    // Null when the platform does not expose it.
+    cacheBytes: z.number().int().nonnegative().nullable(),
+  }),
   disk: usageSchema.extend({ path: z.string() }),
   loadAverage: z.tuple([z.number(), z.number(), z.number()]),
 });
@@ -62,6 +70,8 @@ export const historySchema = z.object({
       t: z.number().int().nonnegative(),
       cpuPercent: z.number().min(0).max(100),
       memoryPercent: z.number().min(0).max(100),
+      // File cache on top of memoryPercent; null for buckets recorded before it was tracked.
+      memoryCachePercent: z.number().min(0).max(100).nullable(),
       diskPercent: z.number().min(0).max(100),
     }),
   ),
@@ -72,7 +82,7 @@ export const rpcContract = defineRpcContract({
   history: { input: z.object({ range: historyRangeSchema }).strict(), output: historySchema },
 });
 
-type CpuTicks = { idle: number; total: number };
+type CpuTicks = { user: number; system: number; idle: number; total: number };
 type SystemStats = z.infer<typeof statsSchema>;
 type SystemHistory = z.infer<typeof historySchema>;
 type HistoryRange = z.infer<typeof historyRangeSchema>;
@@ -85,16 +95,19 @@ const MIGRATIONS = [
     memory_percent REAL NOT NULL,
     disk_percent REAL NOT NULL
   )`,
+  `ALTER TABLE samples ADD COLUMN memory_cache_percent REAL`,
 ];
 
 function cpuTicks(): CpuTicks {
+  let user = 0;
+  let system = 0;
   let idle = 0;
-  let total = 0;
   for (const cpu of cpus()) {
+    user += cpu.times.user + cpu.times.nice;
+    system += cpu.times.sys + cpu.times.irq;
     idle += cpu.times.idle;
-    total += cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq;
   }
-  return { idle, total };
+  return { user, system, idle, total: user + system + idle };
 }
 
 function percent(used: number, total: number): number {
@@ -141,6 +154,27 @@ async function cpuSpeedMHz(cpuList: ReturnType<typeof cpus>): Promise<number | n
   }
 }
 
+async function readMemory(): Promise<{ total: number; available: number; cache: number | null }> {
+  const fallback = { total: totalmem(), available: freemem(), cache: null };
+  if (platform() !== "linux") return fallback;
+  try {
+    const memInfo = await readFile("/proc/meminfo", "utf8");
+    const field = (name: string) => {
+      const match = memInfo.match(new RegExp(`^${name}:\\s+(\\d+) kB$`, "m"));
+      return match ? Number(match[1]) * 1024 : null;
+    };
+    const total = field("MemTotal");
+    const free = field("MemFree");
+    const available = field("MemAvailable");
+    if (total === null || free === null || available === null) return fallback;
+    // MemAvailable is MemFree plus what the kernel can reclaim (page cache, reclaimable slab),
+    // so the difference is exactly the cache that `MemTotal - MemFree` tools count as used.
+    return { total, available, cache: Math.max(0, available - free) };
+  } catch {
+    return fallback;
+  }
+}
+
 async function collectStats(): Promise<SystemStats> {
   const before = cpuTicks();
   const diskPath = homedir();
@@ -150,12 +184,11 @@ async function collectStats(): Promise<SystemStats> {
   const disk = await diskPromise;
 
   const cpuTotal = after.total - before.total;
-  const cpuIdle = after.idle - before.idle;
-  const cpuUsage = cpuTotal > 0 ? percent(cpuTotal - cpuIdle, cpuTotal) : 0;
+  const cpuUser = percent(after.user - before.user, cpuTotal);
+  const cpuSystem = percent(after.system - before.system, cpuTotal);
 
-  const memoryTotal = totalmem();
-  const memoryAvailable = freemem();
-  const memoryUsed = memoryTotal - memoryAvailable;
+  const memory = await readMemory();
+  const memoryUsed = Math.max(0, memory.total - memory.available);
 
   const diskTotal = Number(disk.bsize * disk.blocks);
   const diskAvailable = Number(disk.bsize * disk.bavail);
@@ -172,16 +205,19 @@ async function collectStats(): Promise<SystemStats> {
     architecture: arch(),
     uptimeSeconds: uptime(),
     cpu: {
-      usagePercent: cpuUsage,
+      usagePercent: clampPercent(cpuUser + cpuSystem),
+      userPercent: cpuUser,
+      systemPercent: cpuSystem,
       logicalCores: Math.max(1, cpuList.length),
       model: cpuList[0]?.model.trim() || "Unknown CPU",
       speedMHz,
     },
     memory: {
       usedBytes: memoryUsed,
-      availableBytes: memoryAvailable,
-      totalBytes: memoryTotal,
-      usedPercent: percent(memoryUsed, memoryTotal),
+      availableBytes: memory.available,
+      totalBytes: memory.total,
+      usedPercent: percent(memoryUsed, memory.total),
+      cacheBytes: memory.cache,
     },
     disk: {
       path: diskPath,
@@ -196,9 +232,16 @@ async function collectStats(): Promise<SystemStats> {
 
 async function recordSample(db: PluginDatabase): Promise<void> {
   const stats = await collectStats();
+  const { cacheBytes, totalBytes } = stats.memory;
   db.prepare(
-    "INSERT OR REPLACE INTO samples (sampled_at, cpu_percent, memory_percent, disk_percent) VALUES (?, ?, ?, ?)",
-  ).run(stats.sampledAt, stats.cpu.usagePercent, stats.memory.usedPercent, stats.disk.usedPercent);
+    "INSERT OR REPLACE INTO samples (sampled_at, cpu_percent, memory_percent, memory_cache_percent, disk_percent) VALUES (?, ?, ?, ?, ?)",
+  ).run(
+    stats.sampledAt,
+    stats.cpu.usagePercent,
+    stats.memory.usedPercent,
+    cacheBytes === null ? null : percent(cacheBytes, totalBytes),
+    stats.disk.usedPercent,
+  );
   db.prepare("DELETE FROM samples WHERE sampled_at < ?").run(stats.sampledAt - RETENTION_MS);
 }
 
@@ -213,6 +256,7 @@ function queryHistory(db: PluginDatabase, range: HistoryRange, now = Date.now())
       `SELECT CAST(sampled_at / ? AS INTEGER) * ? AS bucket_start,
               AVG(cpu_percent) AS cpu_percent,
               AVG(memory_percent) AS memory_percent,
+              AVG(memory_cache_percent) AS memory_cache_percent,
               AVG(disk_percent) AS disk_percent
          FROM samples
         WHERE sampled_at >= ?
@@ -223,6 +267,7 @@ function queryHistory(db: PluginDatabase, range: HistoryRange, now = Date.now())
     bucket_start: number;
     cpu_percent: number;
     memory_percent: number;
+    memory_cache_percent: number | null;
     disk_percent: number;
   }>;
   const { earliest } = db.prepare("SELECT MIN(sampled_at) AS earliest FROM samples").get() as {
@@ -239,6 +284,8 @@ function queryHistory(db: PluginDatabase, range: HistoryRange, now = Date.now())
       t: row.bucket_start,
       cpuPercent: clampPercent(row.cpu_percent),
       memoryPercent: clampPercent(row.memory_percent),
+      memoryCachePercent:
+        row.memory_cache_percent === null ? null : clampPercent(row.memory_cache_percent),
       diskPercent: clampPercent(row.disk_percent),
     })),
   };
@@ -268,8 +315,8 @@ function formatUptime(seconds: number): string {
 function formatStats(stats: SystemStats): string {
   return [
     `Host      ${stats.hostname} (${stats.platform} ${stats.architecture})`,
-    `CPU       ${stats.cpu.usagePercent.toFixed(1)}% / ${stats.cpu.logicalCores} logical cores / ${stats.cpu.speedMHz === null ? "speed unavailable" : `${Math.round(stats.cpu.speedMHz)} MHz`}`,
-    `Memory    ${formatBytes(stats.memory.usedBytes)} / ${formatBytes(stats.memory.totalBytes)} (${stats.memory.usedPercent.toFixed(1)}%)`,
+    `CPU       ${stats.cpu.usagePercent.toFixed(1)}% (${stats.cpu.userPercent.toFixed(1)}% user, ${stats.cpu.systemPercent.toFixed(1)}% system) / ${stats.cpu.logicalCores} logical cores / ${stats.cpu.speedMHz === null ? "speed unavailable" : `${Math.round(stats.cpu.speedMHz)} MHz`}`,
+    `Memory    ${formatBytes(stats.memory.usedBytes)} / ${formatBytes(stats.memory.totalBytes)} (${stats.memory.usedPercent.toFixed(1)}%)${stats.memory.cacheBytes === null ? "" : ` + ${formatBytes(stats.memory.cacheBytes)} file cache`}`,
     `Disk      ${formatBytes(stats.disk.availableBytes)} available / ${formatBytes(stats.disk.totalBytes)} (${stats.disk.usedPercent.toFixed(1)}% used)`,
     `Load      ${stats.loadAverage.map((value) => value.toFixed(2)).join("  ")}`,
     `Uptime    ${formatUptime(stats.uptimeSeconds)}`,
@@ -280,21 +327,24 @@ function formatHistory(history: SystemHistory): string {
   if (history.points.length === 0) {
     return "No history recorded yet. Samples are collected every 30s while the plugin is loaded.";
   }
-  const summarize = (select: (point: SystemHistory["points"][number]) => number) => {
-    const values = history.points.map(select);
+  const summarize = (values: number[]) => {
     const average = values.reduce((sum, value) => sum + value, 0) / values.length;
     const peak = Math.max(...values);
     return `avg ${average.toFixed(1)}%  max ${peak.toFixed(1)}%`;
   };
+  const cacheValues = history.points.flatMap((point) =>
+    point.memoryCachePercent === null ? [] : [point.memoryCachePercent],
+  );
   const bucketLabel =
     history.bucketMs < 3_600_000
       ? `${history.bucketMs / 60_000} min`
       : `${history.bucketMs / 3_600_000} h`;
   return [
     `History   ${history.range} / ${history.points.length} buckets of ${bucketLabel}`,
-    `CPU       ${summarize((point) => point.cpuPercent)}`,
-    `Memory    ${summarize((point) => point.memoryPercent)}`,
-    `Disk      ${summarize((point) => point.diskPercent)}`,
+    `CPU       ${summarize(history.points.map((point) => point.cpuPercent))}`,
+    `Memory    ${summarize(history.points.map((point) => point.memoryPercent))}`,
+    cacheValues.length === 0 ? "" : `  + cache ${summarize(cacheValues)}`,
+    `Disk      ${summarize(history.points.map((point) => point.diskPercent))}`,
     history.earliestSampledAt === null
       ? ""
       : `Since     ${new Date(history.earliestSampledAt).toLocaleString()}`,
