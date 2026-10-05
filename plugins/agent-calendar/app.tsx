@@ -587,17 +587,20 @@ function CalendarView({
   const [popover, setPopover] = useState<Popover | null>(null);
 
   // Open each range on its first entry (or 8 AM), the way a calendar app does.
+  // Wait for this range's data, and only mark the range scrolled once the
+  // frame runs: a re-render before then cancels it and must try again.
+  const hasRangeData = activity.from === rangeStart;
   useLayoutEffect(() => {
-    if (scrolledRange.current === rangeKey) return;
-    scrolledRange.current = rangeKey;
+    if (!hasRangeData || scrolledRange.current === rangeKey) return;
     const earliest = Math.min(8 * 60, ...days.flatMap((day) => day.segments.map((s) => s.top)));
     const frame = window.requestAnimationFrame(() => {
+      scrolledRange.current = rangeKey;
       if (scrollRef.current) {
         scrollRef.current.scrollTop = Math.max(0, (earliest / 60 - 0.5) * hourPx);
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [days, rangeKey, hourPx]);
+  }, [days, rangeKey, hourPx, hasRangeData]);
 
   useEffect(() => setPopover(null), [rangeKey, grouping]);
 
@@ -735,7 +738,8 @@ function CalendarView({
                     const isActive = popover?.entry === entry;
                     const style: CSSProperties = {
                       borderLeftColor: color,
-                      backgroundColor: `color-mix(in oklab, ${color} ${isActive ? 30 : 18}%, transparent)`,
+                      // Mixed into the card color, not transparency, so grid lines stay hidden.
+                      backgroundColor: `color-mix(in oklab, ${color} ${isActive ? 30 : 18}%, var(--card))`,
                       top: (segment.top / 60) * hourPx + 1,
                       height,
                       left: `calc(${segment.lane * lane}% + 2px)`,
