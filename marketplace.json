@@ -80,7 +80,7 @@
         "git": {
           "url": "https://github.com/charpeni/bb-plugins.git",
           "subdir": "plugins/system-monitor",
-          "range": "^0.2.0",
+          "range": "^1.0.0",
           "tagPrefix": "system-monitor/"
         }
       }
