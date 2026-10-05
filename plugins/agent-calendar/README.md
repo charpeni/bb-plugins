@@ -12,10 +12,17 @@ The screenshots use sample data.
 
 ## Install
 
-Directly from this repository:
+From the marketplace:
 
 ```sh
-bb plugin install git:https://github.com/charpeni/bb-plugins.git@^0.1.0 --tag-prefix agent-calendar/ --plugin agent-calendar
+bb marketplace add git:github.com/charpeni/bb-plugins@main
+bb plugin install agent-calendar@charpeni
+```
+
+Or directly from this repository:
+
+```sh
+bb plugin install git:https://github.com/charpeni/bb-plugins.git@^1.0.0 --tag-prefix agent-calendar/ --plugin agent-calendar
 ```
 
 Open **Agent Calendar** from the app sidebar, or ask the CLI:

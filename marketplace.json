@@ -6,6 +6,22 @@
   "description": "BB plugins Nicolas Charpentier maintains.",
   "plugins": [
     {
+      "id": "agent-calendar",
+      "displayName": "Agent Calendar",
+      "description": "See what your agents worked on and when, as a calendar or a time sheet.",
+      "icon": { "url": "./icons/agent-calendar.svg" },
+      "tags": ["agents", "calendar", "interface"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/agent-calendar",
+          "range": "^1.0.0",
+          "tagPrefix": "agent-calendar/"
+        }
+      }
+    },
+    {
       "id": "dependabot",
       "displayName": "Dependabot",
       "description": "Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents.",

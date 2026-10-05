@@ -1,8 +1,8 @@
 {
   "name": "bb-plugin-agent-calendar",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "See what your agents worked on and when, as a weekly calendar or a time sheet.",
+  "description": "See what your agents worked on and when, as a calendar or a time sheet.",
   "keywords": [
     "activity",
     "bb-plugin",
@@ -54,7 +54,7 @@
   },
   "bb": {
     "name": "Agent Calendar",
-    "description": "See what your agents worked on and when, as a weekly calendar or a time sheet.",
+    "description": "See what your agents worked on and when, as a calendar or a time sheet.",
     "branding": {
       "icon": "./assets/agent-calendar.svg",
       "experimental_icons": {
