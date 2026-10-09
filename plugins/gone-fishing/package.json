@@ -1,0 +1,73 @@
+{
+  "name": "bb-plugin-gone-fishing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pixel-art fishing pond above the chat input that you can play only while the thread's agent works.",
+  "keywords": [
+    "bb-plugin",
+    "fishing",
+    "game",
+    "idle"
+  ],
+  "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/gone-fishing#readme",
+  "bugs": {
+    "url": "https://github.com/charpeni/bb-plugins/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charpeni/bb-plugins.git",
+    "directory": "plugins/gone-fishing"
+  },
+  "files": [
+    "dist",
+    "server.ts",
+    "app.tsx",
+    "catalog.ts",
+    "look.ts",
+    "progress.ts",
+    "game.ts",
+    "scene.ts",
+    "composer-dom.ts",
+    "underwater.ts",
+    "assets",
+    "README.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bb plugin build",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.15",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "bb-app": "^0.45.0",
+    "better-sqlite3": "^13.0.3",
+    "cron-parser": "^5.10.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "bb": ">=0.45",
+    "bbPluginSdk": ">=0.6.15"
+  },
+  "bb": {
+    "name": "Gone Fishing",
+    "description": "A pixel-art fishing pond above the chat input that you can play only while the thread's agent works.",
+    "branding": {
+      "icon": "./assets/gone-fishing.svg",
+      "experimental_icons": {
+        "fish": "./assets/gone-fishing.svg"
+      }
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  }
+}

@@ -6,6 +6,7 @@
     { "name": "agent-calendar", "source": "./plugins/agent-calendar" },
     { "name": "dependabot", "source": "./plugins/dependabot" },
     { "name": "disk-usage", "source": "./plugins/disk-usage" },
+    { "name": "gone-fishing", "source": "./plugins/gone-fishing" },
     { "name": "skills-sh", "source": "./plugins/skills-sh" },
     { "name": "system-monitor", "source": "./plugins/system-monitor" }
   ]
