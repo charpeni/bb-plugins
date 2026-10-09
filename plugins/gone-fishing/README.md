@@ -1,5 +1,9 @@
 # Gone Fishing plugin
 
+<p align="center">
+  <img width="752" height="213" alt="The pond on top of the chat input while an agent works, flipping through summer, autumn, winter, and spring at Pine Lake, then Birch River, Cattail Marsh at dusk, and Pine Lake at night, with a different angler, boat, and dog in each" src="screenshots/showcase.gif" />
+</p>
+
 A small pixel-art fishing pond that sits on top of the chat input of a thread,
 joined to it as one box. You can fish only while the thread's agent works: the
 pond opens when a turn starts and goes back to the dock when the turn ends.
@@ -8,8 +12,6 @@ behind your text.
 
 Fish at three maps through four seasons, and dress your angler, boat, and dog.
 New maps and gear unlock as your fish book fills up.
-
-<img width="752" height="213" alt="The pond on top of the chat input while an agent works, flipping through summer, autumn, winter, and spring at Pine Lake, then Birch River, Cattail Marsh at dusk, and Pine Lake at night, with a different angler, boat, and dog in each" src="screenshots/showcase.gif" />
 
 ## Inspiration
 
