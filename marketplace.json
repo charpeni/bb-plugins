@@ -54,6 +54,22 @@
       }
     },
     {
+      "id": "gone-fishing",
+      "displayName": "Gone Fishing",
+      "description": "A pixel-art fishing pond above the chat input, playable while the agent works.",
+      "icon": { "url": "./icons/gone-fishing.svg" },
+      "tags": ["game", "composer", "interface"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/gone-fishing",
+          "range": "^1.0.0",
+          "tagPrefix": "gone-fishing/"
+        }
+      }
+    },
+    {
       "id": "skills-sh",
       "displayName": "Skills.sh",
       "description": "Install agent skills from skills.sh once, globally for every AI agent bb runs — 1:1 with the npx skills CLI, with drift-aware updates.",

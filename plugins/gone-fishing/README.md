@@ -22,10 +22,17 @@ code are original.
 
 ## Install
 
-Directly from this repository:
+From the marketplace:
 
 ```sh
-bb plugin install git:https://github.com/charpeni/bb-plugins.git@^0.1.0 --tag-prefix gone-fishing/ --plugin gone-fishing
+bb marketplace add git:github.com/charpeni/bb-plugins@main
+bb plugin install gone-fishing@charpeni
+```
+
+Or directly from this repository:
+
+```sh
+bb plugin install git:https://github.com/charpeni/bb-plugins.git@^1.0.0 --tag-prefix gone-fishing/ --plugin gone-fishing
 ```
 
 ## How to play
