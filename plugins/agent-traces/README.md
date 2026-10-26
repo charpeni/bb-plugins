@@ -1,4 +1,4 @@
-# Trace Waterfall plugin
+# Agent Traces plugin
 
 Shows where an agent's time goes, and why. Open **Traces** in the sidebar to
 see every thread, or **Trace** from a thread's side panel to see every turn of
@@ -17,20 +17,20 @@ From the marketplace:
 
 ```sh
 bb marketplace add git:github.com/charpeni/bb-plugins@main
-bb plugin install trace-waterfall@charpeni
+bb plugin install agent-traces@charpeni
 ```
 
 Or directly from this repository:
 
 ```sh
-bb plugin install git:https://github.com/charpeni/bb-plugins.git@^1.0.0 --tag-prefix trace-waterfall/ --plugin trace-waterfall
+bb plugin install git:https://github.com/charpeni/bb-plugins.git@^1.0.0 --tag-prefix agent-traces/ --plugin agent-traces
 ```
 
 Requires bb 0.47 or newer.
 
 Then open **Traces** in the sidebar's navigation. From a thread, choose
 **Trace** from the side panel's actions, use **Trace this turn** on any chat
-message, or run **Trace Waterfall: open this thread's trace** from the command
+message, or run **Agent Traces: open this thread's trace** from the command
 palette (Mod+Shift+P). The **⤢** button opens what the side panel shows in the
 Traces page, with room for the whole waterfall.
 
@@ -111,15 +111,15 @@ duration pinned to the edge they went past, so nothing disappears silently.
 ## From a terminal or an agent
 
 ```sh
-bb trace-waterfall show [thread] [--turn n|latest|previous]   # phases, slowest calls, failures
-bb trace-waterfall turns [thread]
-bb trace-waterfall commands [thread] [--project]
-bb trace-waterfall compare <a> <b> [thread]
-bb trace-waterfall export [thread] [--turn n] [--format otlp|html] [--send]
+bb agent-traces show [thread] [--turn n|latest|previous]   # phases, slowest calls, failures
+bb agent-traces turns [thread]
+bb agent-traces commands [thread] [--project]
+bb agent-traces compare <a> <b> [thread]
+bb agent-traces export [thread] [--turn n] [--format otlp|html] [--send]
 ```
 
 Every command takes `--json`. Agents get the same answers from the
-`trace_waterfall` tool, so you can ask one why its last turn was slow.
+`agent_traces` tool, so you can ask one why its last turn was slow.
 
 ## Export
 
@@ -130,12 +130,12 @@ Honeycomb, or Langfuse. Turns become one trace each, with stable ids, so
 sending a turn twice updates it. Spans follow the OpenTelemetry GenAI
 conventions where they fit (`execute_tool`, `invoke_agent`, `chat`).
 
-Set the collector in **Settings → Plugins → Trace Waterfall**, or:
+Set the collector in **Settings → Plugins → Agent Traces**, or:
 
 ```sh
-bb plugin config trace-waterfall set otlpEndpoint http://localhost:4318/v1/traces
-bb plugin config trace-waterfall set otlpHeaders "authorization=Bearer …"   # stored as a secret
-bb plugin config trace-waterfall set autoExport true   # send each turn as it finishes
+bb plugin config agent-traces set otlpEndpoint http://localhost:4318/v1/traces
+bb plugin config agent-traces set otlpHeaders "authorization=Bearer …"   # stored as a secret
+bb plugin config agent-traces set autoExport true   # send each turn as it finishes
 ```
 
 ## How spans are built
@@ -170,6 +170,6 @@ Everything comes from the thread's own event history:
 From the repository root:
 
 ```sh
-bb plugin install ./plugins/trace-waterfall
-bb plugin dev plugins/trace-waterfall
+bb plugin install ./plugins/agent-traces
+bb plugin dev plugins/agent-traces
 ```

@@ -69,7 +69,7 @@ function createWorld() {
   };
   thread("thr_a");
   const host = createFakePluginHost({
-    pluginId: "trace-waterfall",
+    pluginId: "agent-traces",
     sdk: {
       subscribe: (args: { callback: ChangeCallback }) => {
         onChange = args.callback;
@@ -164,7 +164,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Trace Waterfall server", () => {
+describe("Agent Traces server", () => {
   it("returns turn summaries with phases, and spans for the requested turn", async () => {
     const world = createWorld();
     seedTurn(world, "t1", 2);
@@ -359,7 +359,7 @@ describe("Trace Waterfall server", () => {
     expect(missing.exitCode).not.toBe(0);
 
     const tool = await world.host.harness.behavior.callAgentTool(
-      "trace_waterfall",
+      "agent_traces",
       { view: "turns" },
       { threadId: "thr_a" },
     );

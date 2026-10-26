@@ -189,7 +189,7 @@ export function toOtlp(
             "bb.provider.id": thread.providerId,
           }),
         },
-        scopeSpans: [{ scope: { name: "bb-plugin-trace-waterfall", version }, spans }],
+        scopeSpans: [{ scope: { name: "bb-plugin-agent-traces", version }, spans }],
       },
     ],
   };

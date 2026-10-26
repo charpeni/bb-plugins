@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    name: "bb-plugin-trace-waterfall",
+    name: "bb-plugin-agent-traces",
     silent: "passed-only",
     include: ["**/*.test.ts"],
     exclude: ["node_modules/**"],

@@ -1,5 +1,5 @@
 {
-  "name": "bb-plugin-trace-waterfall",
+  "name": "bb-plugin-agent-traces",
   "version": "0.1.0",
   "private": true,
   "description": "See where an agent's time goes: a waterfall of every turn's commands, tool calls, and subagents.",
@@ -10,7 +10,7 @@
     "trace",
     "waterfall"
   ],
-  "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/trace-waterfall#readme",
+  "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/agent-traces#readme",
   "bugs": {
     "url": "https://github.com/charpeni/bb-plugins/issues"
   },
@@ -18,7 +18,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/charpeni/bb-plugins.git",
-    "directory": "plugins/trace-waterfall"
+    "directory": "plugins/agent-traces"
   },
   "files": [
     "dist",
@@ -71,12 +71,12 @@
     "bbPluginSdk": ">=0.6.79"
   },
   "bb": {
-    "name": "Trace Waterfall",
+    "name": "Agent Traces",
     "description": "See where an agent's time goes: a waterfall of every turn's commands, tool calls, and subagents.",
     "branding": {
-      "icon": "./assets/trace-waterfall.svg",
+      "icon": "./assets/agent-traces.svg",
       "experimental_icons": {
-        "waterfall": "./assets/trace-waterfall.svg"
+        "waterfall": "./assets/agent-traces.svg"
       }
     },
     "server": "./server.ts",

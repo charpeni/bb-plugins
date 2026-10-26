@@ -9,7 +9,7 @@
  */
 import { oneLine, record, text, type Json } from "./util.js";
 
-export const TRACE_CHANNEL = "trace-waterfall.changed";
+export const TRACE_CHANNEL = "agent-traces.changed";
 
 /** The only event types the trace reads, so the server can filter history. */
 export const TRACE_EVENT_TYPES = [

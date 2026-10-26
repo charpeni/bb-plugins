@@ -114,7 +114,7 @@ ${colors("light")}
 <div class="legend">${breakdown}</div>
 <div class="row"><div class="name"><b>Agent</b> <span>main</span></div><div class="track"><i class="lane" style="left:0;width:100%"></i>${segments(null)}</div></div>
 ${rows.join("\n")}
-<footer>Started ${new Date(start).toISOString()} · exported ${new Date(generatedAt).toISOString()} by Trace Waterfall for bb</footer>
+<footer>Started ${new Date(start).toISOString()} · exported ${new Date(generatedAt).toISOString()} by Agent Traces for bb</footer>
 </body></html>
 `;
 }

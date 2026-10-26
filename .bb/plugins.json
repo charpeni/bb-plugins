@@ -4,11 +4,11 @@
   "name": "charpeni-plugins",
   "plugins": [
     { "name": "agent-calendar", "source": "./plugins/agent-calendar" },
+    { "name": "agent-traces", "source": "./plugins/agent-traces" },
     { "name": "dependabot", "source": "./plugins/dependabot" },
     { "name": "disk-usage", "source": "./plugins/disk-usage" },
     { "name": "gone-fishing", "source": "./plugins/gone-fishing" },
     { "name": "skills-sh", "source": "./plugins/skills-sh" },
-    { "name": "system-monitor", "source": "./plugins/system-monitor" },
-    { "name": "trace-waterfall", "source": "./plugins/trace-waterfall" }
+    { "name": "system-monitor", "source": "./plugins/system-monitor" }
   ]
 }

@@ -50,7 +50,7 @@ interface Row {
   open: boolean;
 }
 
-const NAME_WIDTH_KEY = "trace-waterfall.name-width";
+const NAME_WIDTH_KEY = "agent-traces.name-width";
 const DEFAULT_NAME_WIDTH = 240;
 const MIN_NAME_WIDTH = 140;
 const MAX_NAME_WIDTH = 520;
@@ -192,9 +192,7 @@ function ExportMenu({
         {
           label: "Send to OTLP endpoint",
           disabled: !endpoint,
-          hint: endpoint
-            ? undefined
-            : "Set the OTLP endpoint in Settings → Plugins → Trace Waterfall",
+          hint: endpoint ? undefined : "Set the OTLP endpoint in Settings → Plugins → Agent Traces",
           onSelect: () =>
             run(async () => {
               const result = await rpc.call("sendTurn", { threadId, turnId });

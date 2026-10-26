@@ -1,25 +1,25 @@
 ---
-name: trace-waterfall
+name: agent-traces
 description: Explain where an agent's time went in a bb thread (slowest calls, waits, subagents, child threads, failures), group calls across turns or a project's threads, compare two turns, or export a turn as OpenTelemetry or HTML. Use when asked why a turn was slow or what took the time.
 ---
 
-# Trace Waterfall
+# Agent Traces
 
-Prefer the `trace_waterfall` tool when it is available. Otherwise use the
-`bb trace-waterfall` command. Both default to the current thread and to its
+Prefer the `agent_traces` tool when it is available. Otherwise use the
+`bb agent-traces` command. Both default to the current thread and to its
 last finished turn.
 
 To point the user at a trace, the Traces page lives at
-`/plugins/trace-waterfall/traces/<thread>`, with `/turns/<turn id>`,
+`/plugins/agent-traces/traces/<thread>`, with `/turns/<turn id>`,
 `/commands`, or `/compare/<turn id>/<turn id>` after it.
 
 ## Read a trace
 
 ```sh
-bb trace-waterfall show [thread] [--turn n|latest|previous] [--limit 8] [--json]
-bb trace-waterfall turns [thread] [--json]
-bb trace-waterfall commands [thread] [--project] [--threads 20] [--json]
-bb trace-waterfall compare <a> <b> [thread] [--json]
+bb agent-traces show [thread] [--turn n|latest|previous] [--limit 8] [--json]
+bb agent-traces turns [thread] [--json]
+bb agent-traces commands [thread] [--project] [--threads 20] [--json]
+bb agent-traces compare <a> <b> [thread] [--json]
 ```
 
 - `show` splits the turn's time into phases and lists its slowest calls,
@@ -49,12 +49,12 @@ alongside the agent, so it never counts against these phases.
 ## Export
 
 ```sh
-bb trace-waterfall export [thread] [--turn n] [--format otlp|html]
-bb trace-waterfall export [thread] [--turn n] --send
+bb agent-traces export [thread] [--turn n] [--format otlp|html]
+bb agent-traces export [thread] [--turn n] --send
 ```
 
 `otlp` prints the turn as OpenTelemetry OTLP/JSON. `--send` posts it to the
-endpoint set with `bb plugin config trace-waterfall set otlpEndpoint <url>`.
+endpoint set with `bb plugin config agent-traces set otlpEndpoint <url>`.
 Headers go in the secret `otlpHeaders` setting as `key=value` pairs, and
 `autoExport` sends every turn as it finishes.
 

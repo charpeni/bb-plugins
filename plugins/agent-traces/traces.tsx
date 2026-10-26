@@ -44,7 +44,7 @@ interface ListOptions {
   hidden: boolean;
 }
 
-const OPTIONS_KEY = "trace-waterfall.traces.list";
+const OPTIONS_KEY = "agent-traces.traces.list";
 const optionListeners = new Set<() => void>();
 let listOptions: ListOptions = readListOptions();
 

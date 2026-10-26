@@ -598,7 +598,7 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
 
-  // `bb trace-waterfall …` for people and agents in a terminal.
+  // `bb agent-traces …` for people and agents in a terminal.
   const threadPositional = {
     name: "thread",
     description: "Thread ID; defaults to the thread the command runs in",
@@ -608,7 +608,7 @@ export default function plugin(bb: BbPluginApi) {
     if (!threadId) {
       throw new PluginCliError("no thread given", {
         code: "thread_required",
-        hint: "Pass a thread ID, such as `bb trace-waterfall show thr_abc123`.",
+        hint: "Pass a thread ID, such as `bb agent-traces show thr_abc123`.",
       });
     }
     return threadId;
@@ -618,7 +618,7 @@ export default function plugin(bb: BbPluginApi) {
     if (!turn) {
       throw new PluginCliError(`no turn ${ref ?? ""}`.trim(), {
         code: "turn_not_found",
-        hint: "Run `bb trace-waterfall turns` to list the thread's turns.",
+        hint: "Run `bb agent-traces turns` to list the thread's turns.",
       });
     }
     return turn;
@@ -632,7 +632,7 @@ export default function plugin(bb: BbPluginApi) {
 
   bb.cli.register(
     defineCli({
-      name: "trace-waterfall",
+      name: "agent-traces",
       summary: "See where an agent's time went: turns, slowest calls, waits, failures, and exports",
       commands: {
         show: cliCommand({
@@ -796,11 +796,11 @@ export default function plugin(bb: BbPluginApi) {
 
   // The same answers for agents, without leaving the conversation.
   bb.agents.registerTool({
-    name: "trace_waterfall",
+    name: "agent_traces",
     description:
       "Explain where an agent's time went in a bb thread: one turn's time by phase (tools, subagents, thinking, writing, model, waiting on the user, compaction), its slowest calls, subagents, child threads, and failures; or list turns, group calls by what they ran, or compare two turns.",
     instructions:
-      "When asked why a turn was slow or what took the time, call trace_waterfall instead of guessing from memory.",
+      "When asked why a turn was slow or what took the time, call agent_traces instead of guessing from memory.",
     presentation: { label: { pending: "Reading the trace", completed: "Read the trace" } },
     parameters: z.object({
       threadId: z.string().optional().describe("Thread to inspect; defaults to this thread"),
@@ -866,7 +866,7 @@ export default function plugin(bb: BbPluginApi) {
       return turnReport(await store.withChildThreads(threadId, turn, now), now);
     },
   });
-  bb.agents.configure(() => ({ tools: ["trace_waterfall"], skills: ["trace-waterfall"] }));
+  bb.agents.configure(() => ({ tools: ["agent_traces"], skills: ["agent-traces"] }));
 
   bb.onDispose(() => {
     disposed = true;

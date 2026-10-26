@@ -44,7 +44,7 @@ export default definePluginApp((app) => {
     id: "traces",
     title: "Traces",
     // Declared in package.json under bb.branding.experimental_icons.
-    icon: "trace-waterfall/waterfall",
+    icon: "agent-traces/waterfall",
     path: TRACES_PATH,
     component: TracesPage,
     headerContent: TracesHeader,
@@ -56,7 +56,7 @@ export default definePluginApp((app) => {
     availability: "action",
     id: "trace",
     title: "Trace",
-    icon: "trace-waterfall/waterfall",
+    icon: "agent-traces/waterfall",
     tooltip: "See where this thread's time went",
     layout: "flush",
     component: TracePanel,
@@ -64,7 +64,7 @@ export default definePluginApp((app) => {
   app.slots.messageAction({
     id: "trace-turn",
     title: "Trace this turn",
-    icon: "trace-waterfall/waterfall",
+    icon: "agent-traces/waterfall",
     run: ({ message, openPanel }) => {
       openPanel({
         actionId: "trace",
@@ -75,7 +75,7 @@ export default definePluginApp((app) => {
   });
   app.commands.register({
     id: "open-trace",
-    title: "Trace Waterfall: open this thread's trace",
+    title: "Agent Traces: open this thread's trace",
     isAvailable: ({ threadId }) => threadId !== null,
     run: ({ openPanel }) => {
       openPanel({ actionId: "trace" });

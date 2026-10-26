@@ -1,5 +1,5 @@
 /**
- * Plain-text traces for the `bb trace-waterfall` command and the agent tool:
+ * Plain-text traces for the `bb agent-traces` command and the agent tool:
  * short enough to read in a terminal or a tool result, ordered by what is
  * worth looking at first.
  */
