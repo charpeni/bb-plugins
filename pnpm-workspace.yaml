@@ -6,3 +6,9 @@ allowBuilds:
   better-sqlite3: true
   node-pty: true
   protobufjs: false
+# `bb plugin build` lists the SDK's app exports from the copy it can resolve,
+# else from its own manifest. A hoisted SDK is whichever version pnpm picked
+# for the whole workspace, so keep it out and let each plugin's bb decide.
+hoistPattern:
+  - "*"
+  - "!@get-bb/plugin-sdk"

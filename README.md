@@ -29,6 +29,7 @@ bb plugin install system-monitor@charpeni
 | Plugin                                   | Description                                                                        |
 | ---------------------------------------- | ---------------------------------------------------------------------------------- |
 | [Agent Calendar](plugins/agent-calendar) | See what your agents worked on and when, as a calendar or a time sheet.            |
+| [Agent Traces](plugins/agent-traces)     | See where an agent's time goes: a waterfall of every turn's tools and subagents.   |
 | [Dependabot](plugins/dependabot)         | Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents. |
 | [Disk Usage](plugins/disk-usage)         | See what's taking up disk space on the bb server host, with drill-down.            |
 | [Gone Fishing](plugins/gone-fishing)     | A pixel-art fishing pond above the chat input, playable while the agent works.     |
