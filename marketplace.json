@@ -22,6 +22,22 @@
       }
     },
     {
+      "id": "agent-traces",
+      "displayName": "Agent Traces",
+      "description": "See where an agent's time goes: a waterfall of every turn's tools and subagents.",
+      "icon": { "url": "./icons/agent-traces.svg" },
+      "tags": ["agents", "observability", "interface"],
+      "author": { "name": "Nicolas Charpentier", "github": "charpeni" },
+      "source": {
+        "git": {
+          "url": "https://github.com/charpeni/bb-plugins.git",
+          "subdir": "plugins/agent-traces",
+          "range": "^1.0.0",
+          "tagPrefix": "agent-traces/"
+        }
+      }
+    },
+    {
       "id": "dependabot",
       "displayName": "Dependabot",
       "description": "Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents.",

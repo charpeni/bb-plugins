@@ -22,7 +22,7 @@ import {
 } from "./trace.js";
 import { errorMessage } from "./util.js";
 
-const VERSION = "0.1.0";
+const VERSION = "1.0.0";
 const SIGNAL_DEBOUNCE_MS = 750;
 const RELEVANT_EVENTS = new Set<string>(TRACE_EVENT_TYPES);
 const STALE_HISTORY = ["history-compacted", "history-rewritten", "thread-deleted"];

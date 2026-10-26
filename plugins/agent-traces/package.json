@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-agent-traces",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "See where an agent's time goes: a waterfall of every turn's commands, tool calls, and subagents.",
   "keywords": [
