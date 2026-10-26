@@ -26,14 +26,15 @@ bb plugin install system-monitor@charpeni
 
 ## Plugins
 
-| Plugin                                   | Description                                                                        |
-| ---------------------------------------- | ---------------------------------------------------------------------------------- |
-| [Agent Calendar](plugins/agent-calendar) | See what your agents worked on and when, as a calendar or a time sheet.            |
-| [Dependabot](plugins/dependabot)         | Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents. |
-| [Disk Usage](plugins/disk-usage)         | See what's taking up disk space on the bb server host, with drill-down.            |
-| [Gone Fishing](plugins/gone-fishing)     | A pixel-art fishing pond above the chat input, playable while the agent works.     |
-| [Skills.sh](plugins/skills-sh)           | Install skills.sh skills globally for every AI agent bb runs, with drift updates.  |
-| [System Monitor](plugins/system-monitor) | Live CPU, memory, disk, load, and uptime statistics for the bb server host.        |
+| Plugin                                     | Description                                                                        |
+| ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| [Agent Calendar](plugins/agent-calendar)   | See what your agents worked on and when, as a calendar or a time sheet.            |
+| [Dependabot](plugins/dependabot)           | Review GitHub Dependabot alerts by dependency and send grouped fixes to BB agents. |
+| [Disk Usage](plugins/disk-usage)           | See what's taking up disk space on the bb server host, with drill-down.            |
+| [Gone Fishing](plugins/gone-fishing)       | A pixel-art fishing pond above the chat input, playable while the agent works.     |
+| [Skills.sh](plugins/skills-sh)             | Install skills.sh skills globally for every AI agent bb runs, with drift updates.  |
+| [System Monitor](plugins/system-monitor)   | Live CPU, memory, disk, load, and uptime statistics for the bb server host.        |
+| [Trace Waterfall](plugins/trace-waterfall) | See where an agent's time goes: a waterfall of every turn's tools and subagents.   |
 
 Each plugin can also be installed directly, without the marketplace:
 

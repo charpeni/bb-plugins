@@ -1,0 +1,88 @@
+{
+  "name": "bb-plugin-trace-waterfall",
+  "version": "0.1.0",
+  "private": true,
+  "description": "See where an agent's time goes: a waterfall of every turn's commands, tool calls, and subagents.",
+  "keywords": [
+    "bb-plugin",
+    "performance",
+    "subagents",
+    "trace",
+    "waterfall"
+  ],
+  "homepage": "https://github.com/charpeni/bb-plugins/tree/main/plugins/trace-waterfall#readme",
+  "bugs": {
+    "url": "https://github.com/charpeni/bb-plugins/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/charpeni/bb-plugins.git",
+    "directory": "plugins/trace-waterfall"
+  },
+  "files": [
+    "dist",
+    "server.ts",
+    "store.ts",
+    "trace.ts",
+    "breakdown.ts",
+    "insights.ts",
+    "otlp.ts",
+    "snapshot.ts",
+    "report.ts",
+    "palette.ts",
+    "view.ts",
+    "util.ts",
+    "routes.ts",
+    "app.tsx",
+    "thread-trace.tsx",
+    "traces.tsx",
+    "overview.tsx",
+    "waterfall.tsx",
+    "commands.tsx",
+    "compare.tsx",
+    "ui.tsx",
+    "assets",
+    "skills",
+    "README.md"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bb plugin build",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.79",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.18",
+    "bb-app": "^0.47.1",
+    "better-sqlite3": "^13.0.3",
+    "cron-parser": "^5.10.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "bb": ">=0.47",
+    "bbPluginSdk": ">=0.6.79"
+  },
+  "bb": {
+    "name": "Trace Waterfall",
+    "description": "See where an agent's time goes: a waterfall of every turn's commands, tool calls, and subagents.",
+    "branding": {
+      "icon": "./assets/trace-waterfall.svg",
+      "experimental_icons": {
+        "waterfall": "./assets/trace-waterfall.svg"
+      }
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "skills"
+    ]
+  }
+}
