@@ -13,11 +13,20 @@ running turn plays at 10× speed.
 
 ## Install
 
-This plugin is not released yet. To try it from a checkout of this repository:
+From the marketplace:
 
 ```sh
-bb plugin install ./plugins/trace-waterfall
+bb marketplace add git:github.com/charpeni/bb-plugins@main
+bb plugin install trace-waterfall@charpeni
 ```
+
+Or directly from this repository:
+
+```sh
+bb plugin install git:https://github.com/charpeni/bb-plugins.git@^1.0.0 --tag-prefix trace-waterfall/ --plugin trace-waterfall
+```
+
+Requires bb 0.47 or newer.
 
 Then open **Traces** in the sidebar's navigation. From a thread, choose
 **Trace** from the side panel's actions, use **Trace this turn** on any chat
