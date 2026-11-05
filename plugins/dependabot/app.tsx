@@ -226,7 +226,16 @@ function AlertGroupCard({ group }: { group: DependabotGroupWithFix }) {
   const rpc = useRpc<typeof dependabotRpcContract>();
   const navigate = useBbNavigate();
   const [starting, setStarting] = useState(false);
+  const [startedThreadId, setStartedThreadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bridges the gap between startFix resolving and the alerts-changed refetch
+  // delivering the linked thread, so the card doesn't flash "Fix with agent".
+  const fixThreadId = group.fixThread?.threadId ?? startedThreadId;
+  const fixStatus = group.fixThread?.status ?? (startedThreadId === null ? null : "starting");
+
+  useEffect(() => {
+    if (group.fixThread !== null) setStartedThreadId(null);
+  }, [group.fixThread]);
 
   async function startFix() {
     setStarting(true);
@@ -237,7 +246,7 @@ function AlertGroupCard({ group }: { group: DependabotGroupWithFix }) {
         ecosystem: group.ecosystem,
         dependency: group.dependency,
       });
-      navigate.toThread(result.threadId);
+      setStartedThreadId(result.threadId);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -268,7 +277,7 @@ function AlertGroupCard({ group }: { group: DependabotGroupWithFix }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          {group.fixThread !== null ? (
+          {fixStatus !== null ? (
             <span className="text-xs text-muted-foreground" role="status">
               {
                 {
@@ -278,7 +287,7 @@ function AlertGroupCard({ group }: { group: DependabotGroupWithFix }) {
                   idle: "Thread idle",
                   error: "Thread needs attention",
                   stopping: "Agent stopping",
-                }[group.fixThread.status]
+                }[fixStatus]
               }
             </span>
           ) : null}
@@ -286,15 +295,13 @@ function AlertGroupCard({ group }: { group: DependabotGroupWithFix }) {
             type="button"
             disabled={starting}
             onClick={() =>
-              group.fixThread === null
-                ? void startFix()
-                : navigate.toThread(group.fixThread.threadId)
+              fixThreadId === null ? void startFix() : navigate.toThread(fixThreadId)
             }
             className="h-9 shrink-0 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {starting
               ? "Starting agent..."
-              : group.fixThread === null
+              : fixThreadId === null
                 ? "Fix with agent"
                 : "Open fix thread"}
           </button>

@@ -72,7 +72,9 @@ availability, severity distribution, and per-repository exposure. **Fix with
 agent** re-fetches the group, then starts one project-scoped thread with every
 CVE, vulnerable range, and first patched version in its prompt. The prompt asks
 the agent to update manifests and lockfiles, run repository checks, and never
-dismiss an alert instead of fixing the code.
+dismiss an alert instead of fixing the code. Starting a fix keeps you on the
+Dependabot panel, so you can queue several fixes in a row; use **Open fix
+thread** on a card when you want to follow its agent.
 
 Use the **Custom prompt** textarea (`customPrompt`) in the Dependabot plugin settings to
 append your own instructions to the standard remediation prompt and alert
