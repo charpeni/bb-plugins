@@ -74,14 +74,26 @@ function turnEvents(threadId: string, turns: Array<[number, number | null]>, fir
 function createWorld() {
   const threads: FakeThread[] = [];
   const events = new Map<string, FakeEvent[]>();
+  // Threads a shifted offset page skips: still in bb, missing from the paged listing.
+  const skippedByPaging = new Set<string>();
   const host = createFakePluginHost({
     pluginId: "agent-calendar",
     sdk: {
       threads: {
-        list: async (args?: { archived?: boolean; offset?: number }) =>
-          (args?.offset ?? 0) > 0
-            ? []
-            : threads.filter((item) => (item.archivedAt !== null) === (args?.archived ?? false)),
+        list: async (args?: {
+          archived?: boolean;
+          offset?: number;
+          threadIds?: readonly string[];
+        }) => {
+          const visible = threads.filter((item) => item.visibility === "visible");
+          if (args?.threadIds) return visible.filter((item) => args.threadIds!.includes(item.id));
+          if ((args?.offset ?? 0) > 0) return [];
+          return visible.filter(
+            (item) =>
+              !skippedByPaging.has(item.id) &&
+              (item.archivedAt !== null) === (args?.archived ?? false),
+          );
+        },
         events: {
           list: async (args: { threadId: string; afterSeq?: string; limit?: string }) =>
             (events.get(args.threadId) ?? [])
@@ -97,7 +109,7 @@ function createWorld() {
       },
     } as never,
   });
-  return { host, threads, events };
+  return { host, threads, events, skippedByPaging };
 }
 
 async function loadWorld() {
@@ -193,16 +205,67 @@ describe("Agent Calendar server", () => {
     await world.host.harness.callRpc("activity", WEEK);
     const firstReads = world.host.harness.sdk.callsTo("threads.events.list").length;
 
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.now() + 60_000);
     world.events.get("thr_b")!.push(...turnEvents("thr_b", [[at(5, 15), at(5, 16)]], 3));
     world.threads[1]!.updatedAt = at(5, 16);
+    await world.host.harness.runSchedule("reconcile");
     const activity = activitySchema.parse(await world.host.harness.callRpc("activity", WEEK));
 
     const reads = world.host.harness.sdk.callsTo("threads.events.list").slice(firstReads);
     expect(reads.map(([args]) => (args as { threadId: string }).threadId)).toEqual(["thr_b"]);
     expect((reads[0]![0] as { afterSeq: string }).afterSeq).toBe("2");
     expect(activity.blocks.filter((block) => block.threadId === "thr_b")).toHaveLength(2);
+  });
+
+  it("answers reads from the index instead of re-listing every thread", async () => {
+    const world = createWorld();
+    world.threads.push(thread({ id: "thr_a", status: "active" }));
+    world.events.set("thr_a", turnEvents("thr_a", [[at(5, 9), at(5, 10)]]));
+    await plugin(world.host.bb);
+    await world.host.harness.callRpc("activity", WEEK);
+    const listCalls = world.host.harness.sdk.callsTo("threads.list").length;
+    const eventCalls = world.host.harness.sdk.callsTo("threads.events.list").length;
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    for (let minute = 1; minute <= 5; minute += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      await world.host.harness.callRpc("activity", WEEK);
+    }
+
+    expect(world.host.harness.sdk.callsTo("threads.list")).toHaveLength(listCalls);
+    expect(world.host.harness.sdk.callsTo("threads.events.list")).toHaveLength(eventCalls);
+  });
+
+  it("keeps threads that a shifted page skipped, and drops the ones bb no longer lists", async () => {
+    const world = createWorld();
+    world.threads.push(
+      thread({ id: "thr_skipped" }),
+      thread({ id: "thr_gone" }),
+      thread({ id: "thr_hidden" }),
+    );
+    for (const id of ["thr_skipped", "thr_gone", "thr_hidden"]) {
+      world.events.set(id, turnEvents(id, [[at(5, 9), at(5, 10)]]));
+    }
+    await plugin(world.host.bb);
+    await world.host.harness.callRpc("activity", WEEK);
+
+    world.skippedByPaging.add("thr_skipped");
+    world.threads.splice(
+      world.threads.findIndex((item) => item.id === "thr_gone"),
+      1,
+    );
+    world.threads.find((item) => item.id === "thr_hidden")!.visibility = "hidden";
+    const eventReads = world.host.harness.sdk.callsTo("threads.events.list").length;
+    await world.host.harness.runSchedule("reconcile");
+
+    const activity = activitySchema.parse(await world.host.harness.callRpc("activity", WEEK));
+    expect(activity.blocks.map((block) => block.threadId)).toEqual(["thr_skipped"]);
+    const lookups = world.host.harness.sdk
+      .callsTo("threads.list")
+      .map(([args]) => (args as { threadIds?: string[] }).threadIds)
+      .filter((ids) => ids !== undefined);
+    expect(lookups).toEqual([["thr_skipped", "thr_gone", "thr_hidden"]]);
+    // The skipped thread keeps its turns instead of re-reading them from the start.
+    expect(world.host.harness.sdk.callsTo("threads.events.list")).toHaveLength(eventReads);
   });
 
   it("shows running turns as ongoing and caps abandoned ones", async () => {
