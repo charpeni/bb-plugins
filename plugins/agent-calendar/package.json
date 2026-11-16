@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-agent-calendar",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "See what your agents worked on and when, as a calendar or a time sheet.",
   "keywords": [
