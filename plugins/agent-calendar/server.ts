@@ -24,10 +24,13 @@ const MAX_RANGE_MS = 62 * DAY_MS;
 const COLOR_WINDOW_MS = 30 * DAY_MS;
 const COLOR_SLOTS = 8;
 const THREAD_PAGE_SIZE = 500;
+// threads.list accepts at most 200 IDs per call.
+const THREAD_ID_LOOKUP_SIZE = 200;
 // The events endpoint refuses pages larger than 100.
 const EVENT_PAGE_SIZE = 100;
 const SYNC_CONCURRENCY = 6;
-const FRESH_SYNC_MS = 30_000;
+// Lifecycle events keep the index current; this only catches what they miss, like renames.
+const RECONCILE_CRON = "*/15 * * * *";
 const THREAD_SYNC_DEBOUNCE_MS = 1_500;
 const CHANGE_SIGNAL_DEBOUNCE_MS = 1_000;
 const RUNNING_STATUSES = new Set(["active", "starting", "stopping"]);
@@ -337,23 +340,36 @@ export default function plugin(bb: BbPluginApi) {
     return threads;
   };
 
+  const lookUpThreads = async (ids: readonly string[]): Promise<ThreadSummary[]> => {
+    const threads: ThreadSummary[] = [];
+    for (let index = 0; index < ids.length; index += THREAD_ID_LOOKUP_SIZE) {
+      const threadIds = ids.slice(index, index + THREAD_ID_LOOKUP_SIZE);
+      threads.push(...(await bb.sdk.threads.list({ threadIds, limit: threadIds.length })));
+    }
+    return threads;
+  };
+
   const runFullSync = async (): Promise<void> => {
     const startedAt = Date.now();
-    const threads = await listThreads();
     const known = new Map(
       (db.prepare("SELECT id, synced_updated_at FROM threads").all() as ThreadRow[]).map((row) => [
         row.id,
         row.synced_updated_at,
       ]),
     );
-    const listed = new Set(threads.map((thread) => thread.id));
+    const byId = new Map((await listThreads()).map((thread) => [thread.id, thread]));
+    // Offset pages shift when threads are created, pinned or archived mid-listing, so a known
+    // thread missing from them is looked up by ID. Only the ones bb no longer lists (deleted or
+    // hidden) leave the calendar.
+    const missing = [...known.keys()].filter((id) => !byId.has(id));
+    for (const thread of await lookUpThreads(missing)) byId.set(thread.id, thread);
+    const threads = [...byId.values()];
     let changed = false;
 
     db.transaction(() => {
       for (const thread of threads) upsertThread(db, thread);
-      // Deleted (and newly hidden) threads drop out of the lists.
-      for (const id of known.keys()) {
-        if (!listed.has(id)) {
+      for (const id of missing) {
+        if (!byId.has(id)) {
           deleteThread(db, id);
           changed = true;
         }
@@ -387,9 +403,9 @@ export default function plugin(bb: BbPluginApi) {
     return fullSync;
   };
 
-  const ensureFresh = async (): Promise<void> => {
-    const syncedAt = readSyncedAt();
-    if (syncedAt === null || Date.now() - syncedAt > FRESH_SYNC_MS) await syncAll();
+  /** Reads come from the index; only the very first one waits for the backfill. */
+  const ensureBackfilled = async (): Promise<void> => {
+    if (readSyncedAt() === null) await syncAll();
   };
 
   /** Lifecycle events keep the index current between full syncs. */
@@ -433,7 +449,7 @@ export default function plugin(bb: BbPluginApi) {
     to: number,
     mergeGapMinutes: MergeGapMinutes,
   ): Promise<Activity> => {
-    await ensureFresh();
+    await ensureBackfilled();
     const now = Date.now();
     const blocks = buildBlocks(readTurns(db, from, to), {
       from,
@@ -488,6 +504,14 @@ export default function plugin(bb: BbPluginApi) {
           bb.log.warn(`Initial turn history sync failed: ${errorMessage(cause)}`);
       }
     },
+  });
+
+  bb.background.schedule("reconcile", RECONCILE_CRON, async () => {
+    try {
+      await syncAll();
+    } catch (cause) {
+      bb.log.warn(`Turn history reconcile failed: ${errorMessage(cause)}`);
+    }
   });
 
   bb.cli.register({
